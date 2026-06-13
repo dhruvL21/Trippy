@@ -1,0 +1,2222 @@
+import { useState, useEffect, useRef } from 'react';
+import { 
+  MapPin, 
+  Users, 
+  MessageSquare, 
+  Shield, 
+  Settings as SettingsIcon, 
+  Plus, 
+  Trash2, 
+  Check, 
+  RefreshCw, 
+  AlertTriangle, 
+  Sparkles, 
+  Send, 
+  Eye, 
+  EyeOff, 
+  CheckCircle,
+  TrendingUp
+} from 'lucide-react';
+import { AIService } from './services/ai';
+import type { Trip, Group, Member, ChecklistItem, ChatMessage, Expense, SafetyReport, AppSettings } from './types';
+import './App.css';
+
+// Default mock group for immediate interaction
+const DEFAULT_GROUP: Group = {
+  id: 'group-goa-2026',
+  name: 'Goa Gang 2026 🌴',
+  members: [
+    { id: 'mem-1', name: 'Dhruv (You)', upi: 'dhruv@upi' },
+    { id: 'mem-2', name: 'Aarav', upi: 'aarav@paytm' },
+    { id: 'mem-3', name: 'Ananya', upi: 'ananya@okaxis' },
+    { id: 'mem-4', name: 'Kabir', upi: 'kabir@ybl' }
+  ],
+  votes: [
+    { city: 'Goa', votes: ['mem-1', 'mem-2', 'mem-3'] },
+    { city: 'Jaipur', votes: ['mem-4'] },
+    { city: 'Manali', votes: ['mem-1', 'mem-4'] }
+  ],
+  checklist: [
+    { id: 'chk-1', text: 'Book beach villas', checked: true, assigneeName: 'Dhruv (You)' },
+    { id: 'chk-2', text: 'Rent rental scooters', checked: false, assigneeName: 'Aarav' },
+    { id: 'chk-3', text: 'Order physical maps and sunscreen', checked: false, assigneeName: 'Ananya' },
+    { id: 'chk-4', text: 'Pack heavy powerbanks & first-aid', checked: true, assigneeName: 'Kabir' },
+    { id: 'chk-5', text: 'Book return flight tickets', checked: false, assigneeName: 'Dhruv (You)' }
+  ],
+  chatHistory: [
+    { id: 'msg-1', sender: 'Aarav', text: 'Yo guys! Excited for Goa! Have we locked down the budget?', timestamp: '10:30 AM' },
+    { id: 'msg-2', sender: 'Ananya', text: 'Yes, keeping it around ₹30k each. Did we confirm dates?', timestamp: '10:32 AM' },
+    { id: 'msg-3', sender: 'Kabir', text: 'Yeah, May 25 to 28 looks clean. Let\'s make sure we keep tracking expenses.', timestamp: '10:35 AM' }
+  ]
+};
+
+// Default mock expenses
+const DEFAULT_EXPENSES: Expense[] = [
+  { id: 'exp-1', title: 'Villa Booking Deposit', amount: 8000, paidBy: 'Dhruv (You)', splitWith: ['Dhruv (You)', 'Aarav', 'Ananya', 'Kabir'], category: 'accommodation', date: '2026-05-24' },
+  { id: 'exp-2', title: 'Dinner at Britto\'s Shack', amount: 2800, paidBy: 'Ananya', splitWith: ['Dhruv (You)', 'Aarav', 'Ananya', 'Kabir'], category: 'food', date: '2026-05-25' },
+  { id: 'exp-3', title: 'Scooter Fuel charges', amount: 800, paidBy: 'Aarav', splitWith: ['Dhruv (You)', 'Aarav'], category: 'transport', date: '2026-05-25' }
+];
+
+const DEFAULT_SETTINGS: AppSettings = {
+  openaiApiKey: (import.meta.env.VITE_OPENAI_API_KEY as string) || '',
+  openweathermapApiKey: '',
+  googleMapsApiKey: '',
+  model: 'gpt-4o-mini',
+  userName: 'Dhruv',
+  userUpi: 'dhruv@upi'
+};
+
+const INTERESTS_LIST = [
+  { id: 'beaches', label: 'Beaches 🏖️' },
+  { id: 'history', label: 'History 🏛️' },
+  { id: 'nightlife', label: 'Nightlife 🪩' },
+  { id: 'nature', label: 'Nature 🏔️' },
+  { id: 'food', label: 'Food Crawl 🍛' },
+  { id: 'shopping', label: 'Shopping 🛍️' },
+  { id: 'adventure', label: 'Adventure 🧗' }
+];
+
+export default function App() {
+  // --- Persistent States ---
+  const [activeTab, setActiveTab] = useState<'planner' | 'safety' | 'group' | 'expenses' | 'chatbot' | 'settings'>(() => {
+    return (localStorage.getItem('trippy_active_tab') as any) || 'planner';
+  });
+
+  const [settings, setSettings] = useState<AppSettings>(() => {
+    const saved = localStorage.getItem('trippy_settings');
+    const parsed = saved ? JSON.parse(saved) : DEFAULT_SETTINGS;
+    if (!parsed.openaiApiKey && import.meta.env.VITE_OPENAI_API_KEY) {
+      parsed.openaiApiKey = import.meta.env.VITE_OPENAI_API_KEY;
+    }
+    return parsed;
+  });
+
+  const [activeTrip, setActiveTrip] = useState<Trip | null>(() => {
+    const saved = localStorage.getItem('trippy_active_trip');
+    return saved ? JSON.parse(saved) : null;
+  });
+
+  const [safetyReport, setSafetyReport] = useState<SafetyReport | null>(() => {
+    const saved = localStorage.getItem('trippy_safety_report');
+    return saved ? JSON.parse(saved) : null;
+  });
+
+  const [group, setGroup] = useState<Group>(() => {
+    const saved = localStorage.getItem('trippy_group');
+    return saved ? JSON.parse(saved) : DEFAULT_GROUP;
+  });
+
+  const [expenses, setExpenses] = useState<Expense[]>(() => {
+    const saved = localStorage.getItem('trippy_expenses');
+    return saved ? JSON.parse(saved) : DEFAULT_EXPENSES;
+  });
+
+  const [savedTrips, setSavedTrips] = useState<Trip[]>(() => {
+    const saved = localStorage.getItem('trippy_saved_trips');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  const [chatbotMessages, setChatbotMessages] = useState<ChatMessage[]>(() => {
+    const saved = localStorage.getItem('trippy_chatbot_msgs');
+    if (saved) return JSON.parse(saved);
+    return [
+      {
+        id: 'welcome',
+        sender: 'TripPilot',
+        text: `Hi there! I am your AI Travel Companion. 🗺️\n\nGenerate a trip in the **Trip Planner** tab, and I will instantly know the details to help you out!\n\nFeel free to ask me questions like:\n* *"Is UPI accepted widely in Goa?"*\n* *"What is the temple dress code in Jaipur?"*\n* *"How can I cut costs on transport?"*`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        isAI: true
+      }
+    ];
+  });
+
+  // --- UI Control States ---
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [loadingTrip, setLoadingTrip] = useState(false);
+  const [loadingSafety, setLoadingSafety] = useState(false);
+  const [activeItineraryDay, setActiveItineraryDay] = useState<number>(1);
+  const [replanningDay, setReplanningDay] = useState<number | null>(null);
+  
+  // Trip Form States
+  const [source, setSource] = useState('Delhi');
+  const [destination, setDestination] = useState('Goa');
+  const [startDate, setStartDate] = useState('2026-05-25');
+  const [endDate, setEndDate] = useState('2026-05-28');
+  const [travelers, setTravelers] = useState(2);
+  const [budgetLimit, setBudgetLimit] = useState(30000);
+  const [tripType, setTripType] = useState('Leisure');
+  const [accommodationPreference, setAccommodationPreference] = useState('Standard');
+  const [transportPreference, setTransportPreference] = useState('train');
+  const [selectedInterests, setSelectedInterests] = useState<string[]>(['beaches', 'food', 'nightlife']);
+
+  // Settings Temp States
+  const [tempUserName, setTempUserName] = useState(settings.userName);
+  const [tempUserUpi, setTempUserUpi] = useState(settings.userUpi);
+  const [tempOpenaiKey, setTempOpenaiKey] = useState(settings.openaiApiKey);
+  const [tempModel, setTempModel] = useState(settings.model);
+
+  // Group Form States
+  const [newMemberName, setNewMemberName] = useState('');
+  const [newMemberUpi, setNewMemberUpi] = useState('');
+  const [newChecklistText, setNewChecklistText] = useState('');
+  const [newChecklistAssignee, setNewChecklistAssignee] = useState('Dhruv (You)');
+  const [newVoteCity, setNewVoteCity] = useState('');
+  const [chatInput, setChatInput] = useState('');
+
+  // Expense Form States
+  const [expenseTitle, setExpenseTitle] = useState('');
+  const [expenseAmount, setExpenseAmount] = useState('');
+  const [expensePaidBy, setExpensePaidBy] = useState('Dhruv (You)');
+  const [expenseSplitWith, setExpenseSplitWith] = useState<string[]>(['Dhruv (You)', 'Aarav', 'Ananya', 'Kabir']);
+  const [expenseCategory, setExpenseCategory] = useState<'accommodation' | 'transport' | 'food' | 'sightseeing' | 'shopping' | 'emergency'>('food');
+
+  // Chatbot Input State
+  const [botQuery, setBotQuery] = useState('');
+  const [botLoading, setBotLoading] = useState(false);
+
+  // UPI Settlement Modal State
+  const [settlementModal, setSettlementModal] = useState<{from: string, to: string, amount: number} | null>(null);
+
+  // Refs
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  const groupChatEndRef = useRef<HTMLDivElement>(null);
+
+  // --- Sync storage changes ---
+  useEffect(() => {
+    localStorage.setItem('trippy_active_tab', activeTab);
+  }, [activeTab]);
+
+  useEffect(() => {
+    localStorage.setItem('trippy_settings', JSON.stringify(settings));
+  }, [settings]);
+
+  useEffect(() => {
+    localStorage.setItem('trippy_active_trip', activeTrip ? JSON.stringify(activeTrip) : '');
+  }, [activeTrip]);
+
+  useEffect(() => {
+    localStorage.setItem('trippy_safety_report', safetyReport ? JSON.stringify(safetyReport) : '');
+  }, [safetyReport]);
+
+  useEffect(() => {
+    localStorage.setItem('trippy_group', JSON.stringify(group));
+  }, [group]);
+
+  useEffect(() => {
+    localStorage.setItem('trippy_expenses', JSON.stringify(expenses));
+  }, [expenses]);
+
+  useEffect(() => {
+    localStorage.setItem('trippy_chatbot_msgs', JSON.stringify(chatbotMessages));
+  }, [chatbotMessages]);
+
+  useEffect(() => {
+    localStorage.setItem('trippy_saved_trips', JSON.stringify(savedTrips));
+  }, [savedTrips]);
+
+  // Check for shared trip query param on mount
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tripParam = params.get('trip');
+    if (tripParam) {
+      try {
+        const decoded = JSON.parse(decodeURIComponent(atob(tripParam)));
+        setActiveTrip(decoded);
+        setActiveItineraryDay(1);
+        
+        // Load related safety report
+        AIService.generateSafetyReport(decoded.destination, settings.openaiApiKey, settings.model)
+          .then(report => setSafetyReport(report))
+          .catch(err => console.error('Failed to load safety report for shared trip', err));
+          
+        // Clean query parameter from URL
+        window.history.replaceState({}, document.title, window.location.pathname);
+        alert(`Loaded shared itinerary to ${decoded.destination}! ✈️`);
+      } catch (err) {
+        console.error("Failed to decode shared trip from URL:", err);
+      }
+    }
+  }, []);
+
+  // Scroll chats to bottom
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatbotMessages, botLoading]);
+
+  useEffect(() => {
+    groupChatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [group.chatHistory]);
+
+  // Sync names in expense dropdown when group members change
+  useEffect(() => {
+    if (group.members.length > 0) {
+      setExpenseSplitWith(group.members.map(m => m.name));
+      if (!group.members.some(m => m.name === expensePaidBy)) {
+        setExpensePaidBy(group.members[0].name);
+      }
+    }
+  }, [group.members]);
+
+  // --- Handlers ---
+  const handleSaveTrip = () => {
+    if (!activeTrip) return;
+    if (savedTrips.some(t => t.id === activeTrip.id)) {
+      alert('This trip is already saved!');
+      return;
+    }
+    setSavedTrips(prev => [activeTrip, ...prev]);
+    alert(`Trip to ${activeTrip.destination} saved successfully!`);
+  };
+
+  const handleDeleteSavedTrip = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (confirm('Are you sure you want to delete this saved trip?')) {
+      setSavedTrips(prev => prev.filter(t => t.id !== id));
+    }
+  };
+
+  const handleLoadSavedTrip = (trip: Trip) => {
+    setActiveTrip(trip);
+    setActiveItineraryDay(1);
+    
+    // Sync form inputs to loaded trip
+    setSource(trip.source);
+    setDestination(trip.destination);
+    setStartDate(trip.startDate);
+    setEndDate(trip.endDate);
+    setTravelers(trip.travelers);
+    setBudgetLimit(trip.budgetLimit);
+    setTripType(trip.tripType);
+    setAccommodationPreference(trip.accommodationPreference);
+    setTransportPreference(trip.transportPreference);
+    
+    // Load related safety report
+    AIService.generateSafetyReport(trip.destination, settings.openaiApiKey, settings.model)
+      .then(report => setSafetyReport(report))
+      .catch(err => console.error(err));
+      
+    alert(`Loaded active trip to ${trip.destination}!`);
+  };
+
+  const handleShareTrip = () => {
+    if (!activeTrip) return;
+    try {
+      const serialized = btoa(encodeURIComponent(JSON.stringify(activeTrip)));
+      const shareUrl = `${window.location.origin}${window.location.pathname}?trip=${serialized}`;
+      
+      navigator.clipboard.writeText(shareUrl).then(() => {
+        alert('Shareable link copied to clipboard! Share it with friends to show them this itinerary.');
+      }).catch(err => {
+        console.error('Failed to copy link:', err);
+        prompt('Copy this link to share:', shareUrl);
+      });
+    } catch (err) {
+      console.error('Failed to generate share link:', err);
+    }
+  };
+
+  const toggleInterest = (id: string) => {
+    setSelectedInterests(prev => 
+      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+    );
+  };
+
+  const handleGenerateTrip = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoadingTrip(true);
+    setLoadingSafety(true);
+
+    try {
+      const interestsLabels = selectedInterests.map(id => INTERESTS_LIST.find(i => i.id === id)?.label || id);
+      
+      const tripParams = {
+        source,
+        destination,
+        startDate,
+        endDate,
+        travelers,
+        budgetLimit,
+        interests: interestsLabels,
+        tripType,
+        accommodationPreference,
+        transportPreference
+      };
+
+      const trip = await AIService.generateItinerary(tripParams, settings.openaiApiKey, settings.model);
+      setActiveTrip(trip);
+      setActiveItineraryDay(1);
+
+      // Fetch Safety Report
+      const safety = await AIService.generateSafetyReport(destination, settings.openaiApiKey, settings.model);
+      setSafetyReport(safety);
+
+      // Initialize Bot greeting based on trip
+      const firstMsg: ChatMessage = {
+        id: Math.random().toString(36).substring(2, 9),
+        sender: 'TripPilot',
+        text: `Awesome! Generated your trip to **${destination}**! 🎒\n\nI can give you customized safety guides, help manage expenses, or discuss temple dress codes and transport options here.`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        isAI: true
+      };
+      setChatbotMessages([firstMsg]);
+
+      // Sync members to include in active group
+      const updatedGroupMembers = [
+        { id: 'mem-1', name: `${settings.userName} (You)`, upi: settings.userUpi },
+        ...Array.from({ length: Math.max(0, travelers - 1) }).map((_, i) => ({
+          id: `mem-gen-${i}`,
+          name: `Traveler ${i + 2}`,
+          upi: `traveler${i + 2}@upi`
+        }))
+      ];
+      setGroup(prev => ({
+        ...prev,
+        members: updatedGroupMembers,
+        // Reset checklist to represent new trip context
+        checklist: [
+          { id: 'c-1', text: `Review emergency contacts in ${destination}`, checked: false, assigneeName: `${settings.userName} (You)` },
+          ...trip.packingList.slice(0, 3).map((item, idx) => ({
+            id: `c-pack-${idx}`,
+            text: `Pack: ${item}`,
+            checked: false,
+            assigneeName: updatedGroupMembers[idx % updatedGroupMembers.length].name
+          }))
+        ]
+      }));
+
+      // Initialize default expenses for this new trip
+      const roomCosts = trip.costBreakdown.accommodation;
+      const transCosts = trip.costBreakdown.transport;
+      const initialExpenses: Expense[] = [];
+      
+      if (roomCosts > 0) {
+        initialExpenses.push({
+          id: 'init-exp-1',
+          title: 'Accommodation Stay Charges',
+          amount: Math.round(roomCosts * 0.7), // part pre-paid
+          paidBy: `${settings.userName} (You)`,
+          splitWith: updatedGroupMembers.map(m => m.name),
+          category: 'accommodation',
+          date: startDate
+        });
+      }
+      if (transCosts > 0) {
+        initialExpenses.push({
+          id: 'init-exp-2',
+          title: `Intercity Travel (${transportPreference})`,
+          amount: transCosts,
+          paidBy: `${settings.userName} (You)`,
+          splitWith: updatedGroupMembers.map(m => m.name),
+          category: 'transport',
+          date: startDate
+        });
+      }
+      setExpenses(initialExpenses);
+
+    } catch (err: any) {
+      alert(err.message || 'Failed to generate travel plan.');
+    } finally {
+      setLoadingTrip(false);
+      setLoadingSafety(false);
+    }
+  };
+
+  const handleReplanning = async (reason: string) => {
+    if (!activeTrip) return;
+    setReplanningDay(activeItineraryDay);
+
+    try {
+      const updatedDay = await AIService.generateReplannedItinerary(
+        activeTrip,
+        activeItineraryDay,
+        reason,
+        settings.openaiApiKey,
+        settings.model
+      );
+
+      const newItinerary = activeTrip.itinerary.map(day => 
+        day.dayNumber === activeItineraryDay ? updatedDay : day
+      );
+
+      // Recalculate totals
+      let accommodation = 0;
+      let transport = 0;
+      let food = 0;
+      let sightseeing = 0;
+      let shopping = 0;
+      let emergency = 0;
+
+      newItinerary.forEach(day => {
+        day.activities.forEach(act => {
+          if (act.type === 'accommodation') accommodation += act.cost;
+          else if (act.type === 'transport') transport += act.cost;
+          else if (act.type === 'food') food += act.cost;
+          else if (act.type === 'sightseeing') sightseeing += act.cost;
+          else if (act.type === 'shopping') shopping += act.cost;
+          else emergency += act.cost;
+        });
+      });
+
+      const total = accommodation + transport + food + sightseeing + shopping + emergency;
+
+      const updatedTrip: Trip = {
+        ...activeTrip,
+        itinerary: newItinerary,
+        costBreakdown: {
+          accommodation,
+          transport,
+          food,
+          sightseeing,
+          shopping,
+          emergency,
+          total
+        }
+      };
+
+      setActiveTrip(updatedTrip);
+      
+      // Update chatbot with notice
+      const botNotice: ChatMessage = {
+        id: Math.random().toString(36).substring(2, 9),
+        sender: 'TripPilot',
+        text: `⚠️ **Itinerary Re-routed**: I have dynamically updated the schedule for **Day ${activeItineraryDay}** in ${activeTrip.destination} due to your report of: *"${reason}"*. Out-door plans have been adjusted to keep your journey smooth!`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        isAI: true
+      };
+      setChatbotMessages(prev => [...prev, botNotice]);
+    } catch (err: any) {
+      alert(err.message || 'Replanning failed.');
+    } finally {
+      setReplanningDay(null);
+    }
+  };
+
+  const handleSaveSettings = (e: React.FormEvent) => {
+    e.preventDefault();
+    const updatedSettings: AppSettings = {
+      openaiApiKey: tempOpenaiKey,
+      openweathermapApiKey: settings.openweathermapApiKey,
+      googleMapsApiKey: settings.googleMapsApiKey,
+      model: tempModel,
+      userName: tempUserName,
+      userUpi: tempUserUpi
+    };
+    setSettings(updatedSettings);
+
+    // Update member list (Dhruv -> new name) in active group
+    setGroup(prev => {
+      const updatedMembers = prev.members.map(m => 
+        m.id === 'mem-1' ? { ...m, name: `${tempUserName} (You)`, upi: tempUserUpi } : m
+      );
+      const updatedChecklist = prev.checklist.map(c => 
+        c.assigneeName?.includes('(You)') ? { ...c, assigneeName: `${tempUserName} (You)` } : c
+      );
+      return {
+        ...prev,
+        members: updatedMembers,
+        checklist: updatedChecklist
+      };
+    });
+
+    alert('Settings saved successfully!');
+  };
+
+  // Group Handlers
+  const handleAddMember = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newMemberName.trim()) return;
+
+    const newMember: Member = {
+      id: Math.random().toString(36).substring(2, 9),
+      name: newMemberName.trim(),
+      upi: newMemberUpi.trim() || undefined
+    };
+
+    setGroup(prev => ({
+      ...prev,
+      members: [...prev.members, newMember]
+    }));
+
+    setNewMemberName('');
+    setNewMemberUpi('');
+  };
+
+  const handleRemoveMember = (id: string) => {
+    if (id === 'mem-1') return; // Cannot delete self
+    setGroup(prev => ({
+      ...prev,
+      members: prev.members.filter(m => m.id !== id)
+    }));
+  };
+
+  const handleVote = (city: string) => {
+    const myId = 'mem-1';
+    setGroup(prev => {
+      const updatedVotes = prev.votes.map(v => {
+        if (v.city === city) {
+          const hasVoted = v.votes.includes(myId);
+          return {
+            ...v,
+            votes: hasVoted ? v.votes.filter(id => id !== myId) : [...v.votes, myId]
+          };
+        }
+        return v;
+      });
+      return { ...prev, votes: updatedVotes };
+    });
+  };
+
+  const handleAddVoteOption = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newVoteCity.trim()) return;
+    if (group.votes.some(v => v.city.toLowerCase() === newVoteCity.toLowerCase().trim())) return;
+
+    setGroup(prev => ({
+      ...prev,
+      votes: [...prev.votes, { city: newVoteCity.trim(), votes: [] }]
+    }));
+    setNewVoteCity('');
+  };
+
+  const handleAddChecklist = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newChecklistText.trim()) return;
+
+    const newItem: ChecklistItem = {
+      id: Math.random().toString(36).substring(2, 9),
+      text: newChecklistText.trim(),
+      checked: false,
+      assigneeName: newChecklistAssignee
+    };
+
+    setGroup(prev => ({
+      ...prev,
+      checklist: [...prev.checklist, newItem]
+    }));
+    setNewChecklistText('');
+  };
+
+  const toggleChecklist = (id: string) => {
+    setGroup(prev => {
+      const updatedChecklist = prev.checklist.map(c => 
+        c.id === id ? { ...c, checked: !c.checked } : c
+      );
+      return { ...prev, checklist: updatedChecklist };
+    });
+  };
+
+  const handleDeleteChecklist = (id: string) => {
+    setGroup(prev => ({
+      ...prev,
+      checklist: prev.checklist.filter(c => c.id !== id)
+    }));
+  };
+
+  const handleSendGroupChat = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!chatInput.trim()) return;
+
+    const myMessage: ChatMessage = {
+      id: Math.random().toString(36).substring(2, 9),
+      sender: `${settings.userName} (You)`,
+      text: chatInput.trim(),
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+
+    setGroup(prev => ({
+      ...prev,
+      chatHistory: [...prev.chatHistory, myMessage]
+    }));
+    setChatInput('');
+
+    // Trigger mock group reply after 1.5 seconds to feel live
+    setTimeout(() => {
+      const peerMembers = group.members.filter(m => m.id !== 'mem-1');
+      if (peerMembers.length === 0) return;
+      const randomPeer = peerMembers[Math.floor(Math.random() * peerMembers.length)];
+
+      const peerReplies = [
+        "Sounds like a plan! Let's double check standard ticket prices.",
+        "Nice! I will add that to my tracking notes.",
+        "UPI works there, right? Don't want to carry too much cash.",
+        "Perfect. I can handle the scooter booking once we arrive.",
+        "Can we check if there are any entry fees for that fort?",
+        "Awesome! I'm packing my powerbank now."
+      ];
+      const randomReply = peerReplies[Math.floor(Math.random() * peerReplies.length)];
+
+      const peerMessage: ChatMessage = {
+        id: Math.random().toString(36).substring(2, 9),
+        sender: randomPeer.name,
+        text: randomReply,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      };
+
+      setGroup(prev => ({
+        ...prev,
+        chatHistory: [...prev.chatHistory, peerMessage]
+      }));
+    }, 1500);
+  };
+
+  // Expense Handlers
+  const handleAddExpense = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!expenseTitle.trim() || !expenseAmount || parseFloat(expenseAmount) <= 0) return;
+
+    const newExpense: Expense = {
+      id: Math.random().toString(36).substring(2, 9),
+      title: expenseTitle.trim(),
+      amount: parseFloat(expenseAmount),
+      paidBy: expensePaidBy,
+      splitWith: expenseSplitWith,
+      category: expenseCategory,
+      date: new Date().toISOString().split('T')[0]
+    };
+
+    setExpenses(prev => [newExpense, ...prev]);
+    setExpenseTitle('');
+    setExpenseAmount('');
+    
+    // Add chatbot system alert if expense exceeds 80% of budget limit in proportion
+    const sumTotal = expenses.reduce((acc, curr) => acc + curr.amount, 0) + parseFloat(expenseAmount);
+    if (activeTrip && sumTotal > activeTrip.budgetLimit) {
+      setTimeout(() => {
+        const warningMsg: ChatMessage = {
+          id: Math.random().toString(36).substring(2, 9),
+          sender: 'TripPilot',
+          text: `🚨 **Budget Alert**: Your total group spending (₹${sumTotal}) has exceeded the planned budget limit of **₹${activeTrip.budgetLimit}**! Consider using the **"Over Budget"** replanning trigger in the Trip Planner tab to optimize remaining days.`,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          isAI: true
+        };
+        setChatbotMessages(prev => [...prev, warningMsg]);
+      }, 1000);
+    }
+  };
+
+  const handleDeleteExpense = (id: string) => {
+    setExpenses(prev => prev.filter(e => e.id !== id));
+  };
+
+  // Splitwise Debts Simplified Solver
+  const calculateSettlements = () => {
+    const balances: { [key: string]: number } = {};
+    group.members.forEach(m => {
+      balances[m.name] = 0;
+    });
+
+    expenses.forEach(exp => {
+      const amount = exp.amount;
+      const payer = exp.paidBy;
+      const splitters = exp.splitWith;
+
+      if (balances[payer] === undefined) balances[payer] = 0;
+      balances[payer] += amount;
+
+      const perPerson = amount / Math.max(1, splitters.length);
+      splitters.forEach(s => {
+        if (balances[s] === undefined) balances[s] = 0;
+        balances[s] -= perPerson;
+      });
+    });
+
+    const creditors: { name: string; amount: number }[] = [];
+    const debtors: { name: string; amount: number }[] = [];
+
+    Object.keys(balances).forEach(name => {
+      const bal = balances[name];
+      if (bal > 0.05) {
+        creditors.push({ name, amount: bal });
+      } else if (bal < -0.05) {
+        debtors.push({ name, amount: -bal });
+      }
+    });
+
+    creditors.sort((a, b) => b.amount - a.amount);
+    debtors.sort((a, b) => b.amount - a.amount);
+
+    const settlements: { from: string; to: string; amount: number }[] = [];
+
+    let cIdx = 0;
+    let dIdx = 0;
+
+    // Deep copy arrays for operations
+    const activeCreds = creditors.map(c => ({ ...c }));
+    const activeDebts = debtors.map(d => ({ ...d }));
+
+    while (cIdx < activeCreds.length && dIdx < activeDebts.length) {
+      const cred = activeCreds[cIdx];
+      const debt = activeDebts[dIdx];
+
+      const minAmt = Math.min(cred.amount, debt.amount);
+      settlements.push({
+        from: debt.name,
+        to: cred.name,
+        amount: Math.round(minAmt)
+      });
+
+      cred.amount -= minAmt;
+      debt.amount -= minAmt;
+
+      if (cred.amount <= 0.05) cIdx++;
+      if (debt.amount <= 0.05) dIdx++;
+    }
+
+    return settlements;
+  };
+
+  const settlementsList = calculateSettlements();
+
+  const handleSettleUp = (from: string, to: string, amount: number) => {
+    // Inject a settling expense record
+    const settlingExpense: Expense = {
+      id: Math.random().toString(36).substring(2, 9),
+      title: `Settlement: ${from} paid ${to}`,
+      amount: amount,
+      paidBy: from,
+      splitWith: [to],
+      category: 'emergency',
+      date: new Date().toISOString().split('T')[0]
+    };
+
+    setExpenses(prev => [settlingExpense, ...prev]);
+    setSettlementModal(null);
+  };
+
+  // AI Chatbot queries
+  const handleSendChatbot = async (e?: React.FormEvent, customQuery?: string) => {
+    if (e) e.preventDefault();
+    const query = customQuery || botQuery;
+    if (!query.trim()) return;
+
+    const userMsg: ChatMessage = {
+      id: Math.random().toString(36).substring(2, 9),
+      sender: `${settings.userName} (You)`,
+      text: query.trim(),
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+
+    setChatbotMessages(prev => [...prev, userMsg]);
+    if (!customQuery) setBotQuery('');
+    setBotLoading(true);
+
+    try {
+      // Map ChatMessage structure to AIService format
+      const history = chatbotMessages
+        .filter(m => m.id !== 'welcome')
+        .map(m => ({
+          role: m.isAI ? 'assistant' : 'user' as 'assistant' | 'user' | 'system',
+          content: m.text
+        }));
+
+      history.push({ role: 'user', content: query.trim() });
+
+      const reply = await AIService.askChatbot(history, activeTrip, settings.openaiApiKey, settings.model);
+      
+      const aiMsg: ChatMessage = {
+        id: Math.random().toString(36).substring(2, 9),
+        sender: 'TripPilot',
+        text: reply,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        isAI: true
+      };
+
+      setChatbotMessages(prev => [...prev, aiMsg]);
+    } catch (err: any) {
+      const errorMsg: ChatMessage = {
+        id: Math.random().toString(36).substring(2, 9),
+        sender: 'TripPilot',
+        text: `❌ Failed to get response: ${err.message || 'Check your internet connection or OpenAI key.'}`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        isAI: true
+      };
+      setChatbotMessages(prev => [...prev, errorMsg]);
+    } finally {
+      setBotLoading(false);
+    }
+  };
+
+  // Custom parser to format markdown bold, lists, headers inside AI responses
+  const renderFormattedMessageText = (text: string) => {
+    return text.split('\n').map((line, idx) => {
+      let trimmed = line.trim();
+      
+      // Header Level 3
+      if (trimmed.startsWith('### ')) {
+        return <h3 key={idx} style={{ marginTop: '12px', color: 'var(--text-primary)' }}>{trimmed.slice(4)}</h3>;
+      }
+      // Header Level 2
+      if (trimmed.startsWith('## ')) {
+        return <h2 key={idx} style={{ marginTop: '16px', color: 'var(--text-primary)', fontSize: '18px' }}>{trimmed.slice(3)}</h2>;
+      }
+      // List items
+      if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+        return <li key={idx} style={{ marginLeft: '16px', listStyleType: 'disc', marginBlock: '4px' }}>{parseInlineMarkdown(trimmed.slice(2))}</li>;
+      }
+      if (/^\d+\.\s/.test(trimmed)) {
+        const itemText = trimmed.replace(/^\d+\.\s/, '');
+        return <li key={idx} style={{ marginLeft: '16px', listStyleType: 'decimal', marginBlock: '4px' }}>{parseInlineMarkdown(itemText)}</li>;
+      }
+      
+      return <p key={idx} style={{ marginBlock: '6px', minHeight: '1em' }}>{parseInlineMarkdown(line)}</p>;
+    });
+  };
+
+  const parseInlineMarkdown = (line: string) => {
+    // Bold matcher **bold**
+    const parts = line.split(/(\*\*.*?\*\*)/g);
+    return parts.map((part, i) => {
+      if (part.startsWith('**') && part.endsWith('**')) {
+        return <strong key={i}>{part.slice(2, -2)}</strong>;
+      }
+      // Italic matcher *italic*
+      const subParts = part.split(/(\*.*?\*)/g);
+      return subParts.map((sub, j) => {
+        if (sub.startsWith('*') && sub.endsWith('*')) {
+          return <em key={j}>{sub.slice(1, -1)}</em>;
+        }
+        return sub;
+      });
+    });
+  };
+
+  return (
+    <div className="dashboard-container">
+      {/* Sidebar navigation */}
+      <aside className="sidebar">
+        <div className="brand-section">
+          <div className="brand-logo">T</div>
+          <div className="brand-name">Trippy</div>
+        </div>
+
+        <nav>
+          <ul className="nav-links">
+            <li 
+              className={`nav-item ${activeTab === 'planner' ? 'active' : ''}`}
+              onClick={() => setActiveTab('planner')}
+            >
+              <MapPin size={18} />
+              <span>Trip Planner</span>
+            </li>
+            <li 
+              className={`nav-item ${activeTab === 'safety' ? 'active' : ''}`}
+              onClick={() => setActiveTab('safety')}
+            >
+              <Shield size={18} />
+              <span>Safety Center</span>
+            </li>
+            <li 
+              className={`nav-item ${activeTab === 'group' ? 'active' : ''}`}
+              onClick={() => setActiveTab('group')}
+            >
+              <Users size={18} />
+              <span>Group Hub</span>
+            </li>
+            <li 
+              className={`nav-item ${activeTab === 'expenses' ? 'active' : ''}`}
+              onClick={() => setActiveTab('expenses')}
+            >
+              <TrendingUp size={18} />
+              <span>Expenses</span>
+            </li>
+            <li 
+              className={`nav-item ${activeTab === 'chatbot' ? 'active' : ''}`}
+              onClick={() => setActiveTab('chatbot')}
+            >
+              <MessageSquare size={18} />
+              <span>TripPilot AI</span>
+            </li>
+            <li 
+              className={`nav-item ${activeTab === 'settings' ? 'active' : ''}`}
+              onClick={() => setActiveTab('settings')}
+            >
+              <SettingsIcon size={18} />
+              <span>Settings</span>
+            </li>
+          </ul>
+        </nav>
+
+        <div className="sidebar-footer">
+          <div className="user-profile-preview">
+            <div className="avatar">
+              {settings.userName.slice(0, 2).toUpperCase()}
+            </div>
+            <div className="user-info">
+              <span className="user-name">{settings.userName}</span>
+              <span className="user-role">Explorer</span>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      {/* Main Panel Content */}
+      <main className="main-content">
+        
+        {/* Universal Mini Header showing active trip context */}
+        {activeTrip ? (
+          <div className="glass-panel" style={{ padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div style={{ background: 'var(--primary-light)', padding: '10px', borderRadius: '10px', color: 'var(--primary-hover)' }}>
+                <MapPin size={20} />
+              </div>
+              <div>
+                <h4 style={{ fontSize: '16px', fontWeight: 600 }}>Active Trip to {activeTrip.destination}</h4>
+                <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                  {new Date(activeTrip.startDate).toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })} - {new Date(activeTrip.endDate).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: 'numeric' })} • {activeTrip.travelers} Travelers
+                </p>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '16px' }}>
+              <div style={{ textAlign: 'right' }}>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Spent vs Budget</span>
+                <div style={{ fontWeight: 700, fontFamily: 'var(--font-display)', color: expenses.reduce((acc, curr) => acc + curr.amount, 0) > activeTrip.budgetLimit ? 'var(--danger)' : 'var(--accent)' }}>
+                  ₹{expenses.reduce((acc, curr) => acc + curr.amount, 0).toLocaleString('en-IN')} / ₹{activeTrip.budgetLimit.toLocaleString('en-IN')}
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          activeTab !== 'settings' && activeTab !== 'planner' && (
+            <div className="settings-warning">
+              <AlertTriangle size={18} />
+              <span>No active trip generated yet. Switch to the **Trip Planner** to initialize your travel itinerary!</span>
+            </div>
+          )
+        )}
+
+        {/* Tab 1: TRIP PLANNER */}
+        {activeTab === 'planner' && (
+          <div>
+            <div className="panel-header">
+              <h1 className="panel-title">🗺️ AI Trip Planner</h1>
+              <p className="panel-subtitle">Create optimized, culture-aligned travel plans or adjust them dynamically.</p>
+            </div>
+
+            <div className="grid-2col">
+              {/* Trip Config Form */}
+              <div className="glass-card">
+                <h3 style={{ marginBottom: '20px', borderBottom: '1px solid var(--border)', paddingBottom: '10px' }}>Generate Itinerary</h3>
+                <form onSubmit={handleGenerateTrip}>
+                  
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label>From (Source)</label>
+                      <input 
+                        type="text" 
+                        value={source} 
+                        onChange={(e) => setSource(e.target.value)} 
+                        placeholder="Delhi, Mumbai..." 
+                        required 
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label>To (Destination)</label>
+                      <input 
+                        type="text" 
+                        value={destination} 
+                        onChange={(e) => setDestination(e.target.value)} 
+                        placeholder="Goa, Jaipur, Manali..." 
+                        required 
+                      />
+                    </div>
+                  </div>
+
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label>Start Date</label>
+                      <input 
+                        type="date" 
+                        value={startDate} 
+                        onChange={(e) => setStartDate(e.target.value)} 
+                        required 
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label>End Date</label>
+                      <input 
+                        type="date" 
+                        value={endDate} 
+                        onChange={(e) => setEndDate(e.target.value)} 
+                        required 
+                      />
+                    </div>
+                  </div>
+
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label>Travelers count</label>
+                      <input 
+                        type="number" 
+                        min="1" 
+                        value={travelers} 
+                        onChange={(e) => setTravelers(parseInt(e.target.value) || 1)} 
+                        required 
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label>Total Budget Limit (INR)</label>
+                      <input 
+                        type="number" 
+                        min="1000" 
+                        step="500" 
+                        value={budgetLimit} 
+                        onChange={(e) => setBudgetLimit(parseInt(e.target.value) || 1000)} 
+                        required 
+                      />
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label>Trip Theme</label>
+                    <select value={tripType} onChange={(e) => setTripType(e.target.value)}>
+                      <option value="Leisure">Leisure / Relaxation 🌴</option>
+                      <option value="Adventure">Adventure / Trekking 🧗</option>
+                      <option value="Heritage">Heritage / History 🏛️</option>
+                      <option value="Backpacking">Budget Backpacking 🎒</option>
+                      <option value="Business">Business Trip 💼</option>
+                    </select>
+                  </div>
+
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label>Accommodation</label>
+                      <select value={accommodationPreference} onChange={(e) => setAccommodationPreference(e.target.value)}>
+                        <option value="Luxury">Luxury Resort</option>
+                        <option value="Standard">Standard Hotel</option>
+                        <option value="Budget">Hostel / HomeStay</option>
+                      </select>
+                    </div>
+                    <div className="form-group">
+                      <label>Transport Preference</label>
+                      <select value={transportPreference} onChange={(e) => setTransportPreference(e.target.value)}>
+                        <option value="flight">Flight ✈️</option>
+                        <option value="train">Train 🚂</option>
+                        <option value="cab">Rental Cab / Bus 🚗</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label>Areas of Interest</label>
+                    <div className="interests-grid">
+                      {INTERESTS_LIST.map(item => (
+                        <div 
+                          key={item.id} 
+                          className={`interest-chip ${selectedInterests.includes(item.id) ? 'selected' : ''}`}
+                          onClick={() => toggleInterest(item.id)}
+                        >
+                          {item.label}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <button 
+                    type="submit" 
+                    className="btn btn-primary" 
+                    style={{ width: '100%', marginTop: '12px' }}
+                    disabled={loadingTrip}
+                  >
+                    {loadingTrip ? (
+                      <>
+                        <RefreshCw className="animate-spin" size={16} />
+                        <span>Crafting AI Itinerary...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles size={16} />
+                        <span>Generate Itinerary {settings.openaiApiKey ? 'with AI' : '(Mock Engine)'}</span>
+                      </>
+                    )}
+                  </button>
+
+                  {!settings.openaiApiKey && (
+                    <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '8px', textAlign: 'center' }}>
+                      Tip: Add an OpenAI API key in **Settings** to get real-time dynamic AI generation!
+                    </p>
+                  )}
+                </form>
+              </div>
+
+              {/* Saved Trips List */}
+              {savedTrips.length > 0 && (
+                <div className="glass-card" style={{ marginTop: '24px' }}>
+                  <h3 style={{ marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span>💾 Saved Itineraries</span>
+                    <span className="badge" style={{ background: 'var(--primary-light)', color: 'var(--primary-hover)', fontSize: '11px' }}>
+                      {savedTrips.length}
+                    </span>
+                  </h3>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '250px', overflowY: 'auto' }}>
+                    {savedTrips.map(trip => (
+                      <div 
+                        key={trip.id} 
+                        className="saved-trip-item"
+                        onClick={() => handleLoadSavedTrip(trip)}
+                        style={{ 
+                          padding: '12px', 
+                          background: activeTrip?.id === trip.id ? 'rgba(99, 102, 241, 0.1)' : 'rgba(255, 255, 255, 0.01)', 
+                          border: activeTrip?.id === trip.id ? '1px solid var(--primary-hover)' : '1px solid var(--border)', 
+                          borderRadius: '10px', 
+                          cursor: 'pointer',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          transition: 'all 0.2s ease'
+                        }}
+                      >
+                        <div style={{ flexGrow: 1 }}>
+                          <strong style={{ fontSize: '13px', display: 'block', color: 'var(--text-primary)' }}>{trip.destination}</strong>
+                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                            {new Date(trip.startDate).toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })} - {new Date(trip.endDate).toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })} • {trip.travelers} Pax
+                          </span>
+                        </div>
+                        <button 
+                          className="btn btn-secondary btn-sm" 
+                          style={{ padding: '4px', minWidth: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--danger)', background: 'transparent', border: 'none' }}
+                          onClick={(e) => handleDeleteSavedTrip(trip.id, e)}
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Itinerary Display Column */}
+              <div className="glass-card" style={{ display: 'flex', flexDirection: 'column' }}>
+                {!activeTrip ? (
+                  <div style={{ textAlign: 'center', margin: 'auto', padding: '24px' }}>
+                    <div style={{ background: 'var(--primary-light)', color: 'var(--primary-hover)', width: '64px', height: '64px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifySelf: 'center', justifyContent: 'center', marginBottom: '16px' }}>
+                      <MapPin size={32} />
+                    </div>
+                    <h2>No Itinerary Yet</h2>
+                    <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginTop: '8px', maxWidth: '320px', marginInline: 'auto' }}>
+                      Fill out the form on the left to generate your custom Indian travel schedule.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px', borderBottom: '1px solid var(--border)', paddingBottom: '12px' }}>
+                      <h3 style={{ margin: 0 }}>Trip Cost Breakdown</h3>
+                      <div className="itinerary-actions-bar" style={{ display: 'flex', gap: '8px' }}>
+                        <button className="btn btn-secondary btn-sm" onClick={handleShareTrip} title="Copy shareable link to clipboard">
+                          🔗 Share Link
+                        </button>
+                        <button className="btn btn-secondary btn-sm" onClick={handleSaveTrip} title="Save to My Saved Trips">
+                          💾 Save Trip
+                        </button>
+                        <button className="btn btn-secondary btn-sm" onClick={() => window.print()} title="Print or export as PDF">
+                          🖨️ Print / PDF
+                        </button>
+                      </div>
+                    </div>
+                    <h3 className="print-only" style={{ marginBottom: '16px', display: 'none' }}>Trip Cost Breakdown</h3>
+                    
+                    {/* SVG / Custom visual progress bar chart */}
+                    <div className="budget-visualizer">
+                      <div className="budget-bar-container">
+                        {Object.entries(activeTrip.costBreakdown).map(([cat, amount]) => {
+                          if (cat === 'total') return null;
+                          const total = activeTrip.costBreakdown.total;
+                          const pct = total > 0 ? (amount / total) * 100 : 0;
+                          if (pct <= 0) return null;
+                          return (
+                            <div 
+                              key={cat} 
+                              className={`budget-segment bg-${cat}`} 
+                              style={{ width: `${pct}%` }} 
+                              title={`${cat}: ₹${amount} (${pct.toFixed(1)}%)`}
+                            />
+                          );
+                        })}
+                      </div>
+
+                      <div className="legend-grid">
+                        {Object.entries(activeTrip.costBreakdown).map(([cat, amount]) => {
+                          if (cat === 'total') return null;
+                          const pct = (amount / activeTrip.costBreakdown.total) * 100;
+                          return (
+                            <div key={cat} className="legend-item">
+                              <div className={`legend-color bg-${cat}`}></div>
+                              <span className="legend-label" style={{ textTransform: 'capitalize' }}>{cat}</span>
+                              <span className="legend-value">₹{amount} ({pct.toFixed(0)}%)</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div style={{ borderTop: '1px solid var(--border)', paddingTop: '12px', display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                        <span>Total Estimated Cost:</span>
+                        <strong style={{ color: 'var(--accent)' }}>₹{activeTrip.costBreakdown.total.toLocaleString('en-IN')}</strong>
+                      </div>
+                    </div>
+
+                    <h3 style={{ marginBlock: '24px 16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span>Schedule Calendar</span>
+                      {replanningDay !== null && <RefreshCw className="animate-spin" size={14} style={{ color: 'var(--primary-hover)' }} />}
+                    </h3>
+
+                    {/* Day tabs selection */}
+                    <div className="day-selector">
+                      {activeTrip.itinerary.map(day => (
+                        <div 
+                          key={day.dayNumber}
+                          className={`day-tab ${activeItineraryDay === day.dayNumber ? 'active' : ''}`}
+                          onClick={() => setActiveItineraryDay(day.dayNumber)}
+                        >
+                          Day {day.dayNumber}
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Active Day Itinerary details */}
+                    {activeTrip.itinerary.map(day => {
+                      if (day.dayNumber !== activeItineraryDay) return null;
+                      return (
+                        <div key={day.dayNumber} style={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
+                          
+                          {/* Replanner Action Trigger Bar */}
+                          <div className="replanner-banner">
+                            <span className="replanner-text">
+                              <strong>Day {day.dayNumber}:</strong> {day.title}
+                            </span>
+                            <div className="replanner-buttons">
+                              <button 
+                                className="btn btn-secondary btn-sm" 
+                                style={{ background: 'rgba(59, 130, 246, 0.1)', borderColor: 'rgba(59, 130, 246, 0.2)', color: '#60a5fa' }}
+                                onClick={() => handleReplanning('Sudden heavy rain')}
+                                disabled={replanningDay !== null}
+                              >
+                                🌧️ Rain
+                              </button>
+                              <button 
+                                className="btn btn-secondary btn-sm" 
+                                style={{ background: 'rgba(239, 68, 68, 0.1)', borderColor: 'rgba(239, 68, 68, 0.2)', color: '#f87171' }}
+                                onClick={() => handleReplanning('Attraction closed for VIP event')}
+                                disabled={replanningDay !== null}
+                              >
+                                🚫 Closed
+                              </button>
+                              <button 
+                                className="btn btn-secondary btn-sm" 
+                                style={{ background: 'rgba(245, 158, 11, 0.1)', borderColor: 'rgba(245, 158, 11, 0.2)', color: '#fbbf24' }}
+                                onClick={() => handleReplanning('Over budget limit')}
+                                disabled={replanningDay !== null}
+                              >
+                                💸 Over Budget
+                              </button>
+                              <button 
+                                className="btn btn-secondary btn-sm" 
+                                style={{ background: 'rgba(16, 185, 129, 0.1)', borderColor: 'rgba(16, 185, 129, 0.2)', color: '#34d399' }}
+                                onClick={() => handleReplanning('Low energy / tired')}
+                                disabled={replanningDay !== null}
+                              >
+                                🧘 Tired
+                              </button>
+                            </div>
+                          </div>
+
+                          {day.budgetTip && (
+                            <div className="glass-panel" style={{ padding: '12px', fontSize: '12px', color: 'var(--warning)', borderColor: 'rgba(245, 158, 11, 0.2)', marginBottom: '16px', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                              <AlertTriangle size={14} style={{ flexShrink: 0 }} />
+                              <span><strong>Budget Tip:</strong> {day.budgetTip}</span>
+                            </div>
+                          )}
+
+                          {/* Timeline of activities */}
+                          <div className="timeline">
+                            {day.activities.map((act, idx) => (
+                              <div key={idx} className="timeline-item" style={{ borderColor: act.isSafetyWarning ? 'rgba(239, 68, 68, 0.3)' : 'var(--border)' }}>
+                                <div className="timeline-dot" style={{ backgroundColor: act.isSafetyWarning ? 'var(--danger)' : 'var(--primary)' }} />
+                                <div className="timeline-time">{act.time}</div>
+                                <div className="timeline-header">
+                                  <span className="timeline-title">
+                                    {act.isSafetyWarning && '⚠️ '}
+                                    {act.title}
+                                  </span>
+                                  <span className={`badge badge-${act.type}`}>{act.type}</span>
+                                </div>
+                                <p className="timeline-desc">{act.description}</p>
+                                
+                                {/* Rich location/activity details */}
+                                {act.address && (
+                                  <div className="activity-detail address-detail" style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '6px', display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
+                                    <span style={{ opacity: 0.8 }}>📍</span>
+                                    <span><strong>Address:</strong> {act.address}</span>
+                                  </div>
+                                )}
+                                
+                                {act.durationHours && (
+                                  <div className="activity-detail duration-detail" style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <span style={{ opacity: 0.8 }}>🕒</span>
+                                    <span><strong>Suggested Stay:</strong> {act.durationHours} {act.durationHours === 1 ? 'hour' : 'hours'}</span>
+                                  </div>
+                                )}
+
+                                {act.dressCode && (
+                                  <div className="activity-detail dress-detail" style={{ fontSize: '12px', color: 'var(--warning)', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <span style={{ opacity: 0.8 }}>👔</span>
+                                    <span><strong>Dress Code:</strong> {act.dressCode}</span>
+                                  </div>
+                                )}
+
+                                {act.highlights && act.highlights.length > 0 && (
+                                  <div className="activity-detail highlights-detail" style={{ marginTop: '8px' }}>
+                                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Highlights:</span>
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                                      {act.highlights.map((h, i) => (
+                                        <span key={i} className="highlight-pill" style={{ fontSize: '10px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)', padding: '2px 8px', borderRadius: '4px', color: 'var(--text-primary)' }}>
+                                          ✨ {h}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+
+                                <div className="timeline-meta" style={{ marginTop: '12px', borderTop: '1px dashed var(--border)', paddingTop: '8px' }}>
+                                  <span className="timeline-location">
+                                    <MapPin size={12} />
+                                    {act.location ? (
+                                      <a 
+                                        href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(act.location + ', ' + activeTrip.destination)}`} 
+                                        target="_blank" 
+                                        rel="noopener noreferrer"
+                                        className="map-link no-print"
+                                        title="View on Google Maps"
+                                        style={{ color: 'var(--primary-hover)', textDecoration: 'underline', fontWeight: 500 }}
+                                      >
+                                        {act.location}
+                                      </a>
+                                    ) : (
+                                      <span>Local area</span>
+                                    )}
+                                    {/* Print-only fallback for location since links shouldn't look like styled text in print */}
+                                    <span className="print-only" style={{ display: 'none' }}>{act.location || 'Local area'}</span>
+                                  </span>
+                                  <span className="timeline-cost" style={{ fontWeight: 600 }}>₹{act.cost}</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Tab 2: SAFETY CENTER */}
+        {activeTab === 'safety' && (
+          <div>
+            <div className="panel-header">
+              <h1 className="panel-title">🛡️ Safety Center</h1>
+              <p className="panel-subtitle">Get tourist-scam warnings, safety neighborhood ratings, and emergency guides.</p>
+            </div>
+
+            {loadingSafety ? (
+              <div style={{ textAlign: 'center', padding: '64px' }}>
+                <RefreshCw className="animate-spin" size={32} style={{ marginInline: 'auto', marginBottom: '16px', color: 'var(--primary-hover)' }} />
+                <h3>Analyzing local safety data...</h3>
+              </div>
+            ) : safetyReport ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                
+                {/* Meter Gauge rating */}
+                <div className="glass-card safety-meter">
+                  <div className="safety-score-circle" style={{ borderColor: safetyReport.rating > 80 ? 'var(--accent)' : safetyReport.rating > 60 ? 'var(--warning)' : 'var(--danger)' }}>
+                    {safetyReport.rating}
+                  </div>
+                  <div className="safety-description">
+                    <span className="safety-label">Destination safety rating</span>
+                    <h3 className="safety-status">
+                      {safetyReport.rating > 80 ? 'Generally Safe & Welcoming 🟢' : safetyReport.rating > 60 ? 'Moderate Pacing Required 🟡' : 'Exercise High Caution 🔴'}
+                    </h3>
+                    <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                      This score is aggregated based on tourist reports, crime registries, scam volume, and female solo travel statistics.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid-2col">
+                  {/* Common Scams */}
+                  <div className="glass-card" style={{ borderColor: 'rgba(239, 68, 68, 0.2)' }}>
+                    <h3 style={{ color: '#f87171', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <AlertTriangle size={18} />
+                      <span>Common Tourist Scams</span>
+                    </h3>
+                    <ul className="safety-bullet-list">
+                      {safetyReport.commonScams.map((scam, i) => (
+                        <li key={i} className="safety-bullet-item">
+                          <span style={{ color: 'var(--danger)' }} className="safety-bullet-icon">🚨</span>
+                          <span>{scam}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  {/* Neighborhood Guides */}
+                  <div className="glass-card">
+                    <h3 style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <MapPin size={18} style={{ color: 'var(--primary-hover)' }} />
+                      <span>Neighborhood Guidance</span>
+                    </h3>
+                    
+                    <div style={{ marginBottom: '16px' }}>
+                      <strong style={{ color: 'var(--accent)', fontSize: '13px', display: 'block', marginBottom: '8px' }}>🟢 Highly Recommended Safe Hubs:</strong>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                        {safetyReport.safeNeighborhoods.map((n, i) => (
+                          <span key={i} className="badge" style={{ background: 'var(--accent-light)', color: '#34d399', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
+                            {n}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <strong style={{ color: 'var(--warning)', fontSize: '13px', display: 'block', marginBottom: '8px' }}>🟡 Exercise Caution / Avoid Late-Night:</strong>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                        {safetyReport.unsafeNeighborhoods.map((n, i) => (
+                          <span key={i} className="badge" style={{ background: 'var(--warning-light)', color: '#fbbf24', border: '1px solid rgba(245, 158, 11, 0.2)' }}>
+                            {n}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid-2col">
+                  {/* Solo Traveler Safety Tips */}
+                  <div className="glass-card">
+                    <h3 style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <CheckCircle size={18} style={{ color: 'var(--primary-hover)' }} />
+                      <span>Solo Traveler Tips</span>
+                    </h3>
+                    <ul className="safety-bullet-list">
+                      {safetyReport.soloTravelerTips.map((tip, i) => (
+                        <li key={i} className="safety-bullet-item">
+                          <span style={{ color: 'var(--primary-hover)' }} className="safety-bullet-icon">✦</span>
+                          <span>{tip}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  {/* Safety Q&A Accordion */}
+                  <div className="glass-card">
+                    <h3 style={{ marginBottom: '16px' }}>Local Security Q&A</h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                      {safetyReport.qa.map((item, i) => (
+                        <div key={i} style={{ padding: '12px', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border)', borderRadius: '10px' }}>
+                          <strong style={{ fontSize: '13px', color: 'var(--text-primary)', display: 'block' }}>Q: {item.question}</strong>
+                          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '6px', lineHeight: 1.5 }}>{item.answer}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+            ) : (
+              <div className="glass-card" style={{ textAlign: 'center', padding: '40px' }}>
+                <AlertTriangle size={24} style={{ color: 'var(--warning)', marginBottom: '12px' }} />
+                <h3>No Safety Data</h3>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginTop: '8px' }}>
+                  Please go to **Trip Planner** and generate a trip first to load specific location safety reviews.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Tab 3: GROUP HUB */}
+        {activeTab === 'group' && (
+          <div>
+            <div className="panel-header">
+              <h1 className="panel-title">👥 Group Coordination Hub</h1>
+              <p className="panel-subtitle">Vote on destinations, coordinate check-lists, and message group members.</p>
+            </div>
+
+            <div className="grid-2col">
+              
+              {/* Left Column: Group Members & Destination Voting */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                
+                {/* Members list */}
+                <div className="glass-card">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                    <h3>Group Name: {group.name}</h3>
+                    <span className="badge" style={{ background: 'var(--primary-light)', color: 'var(--primary-hover)' }}>
+                      {group.members.length} Members
+                    </span>
+                  </div>
+
+                  <ul style={{ display: 'flex', flexDirection: 'column', gap: '10px', listStyle: 'none', marginBottom: '16px' }}>
+                    {group.members.map(member => (
+                      <li 
+                        key={member.id} 
+                        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border)', borderRadius: '8px' }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <div className="avatar" style={{ width: '28px', height: '28px', fontSize: '11px' }}>
+                            {member.name.slice(0, 2).toUpperCase()}
+                          </div>
+                          <div>
+                            <strong style={{ fontSize: '13px' }}>{member.name}</strong>
+                            {member.upi && <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginLeft: '8px' }}>({member.upi})</span>}
+                          </div>
+                        </div>
+                        {member.id !== 'mem-1' && (
+                          <button 
+                            className="btn btn-secondary btn-sm" 
+                            style={{ padding: '4px', minWidth: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                            onClick={() => handleRemoveMember(member.id)}
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+
+                  <form onSubmit={handleAddMember} style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <input 
+                      type="text" 
+                      placeholder="Name" 
+                      value={newMemberName} 
+                      onChange={(e) => setNewMemberName(e.target.value)} 
+                      style={{ flex: 1, minWidth: '100px' }}
+                    />
+                    <input 
+                      type="text" 
+                      placeholder="UPI (optional)" 
+                      value={newMemberUpi} 
+                      onChange={(e) => setNewMemberUpi(e.target.value)} 
+                      style={{ flex: 1, minWidth: '120px' }}
+                    />
+                    <button type="submit" className="btn btn-primary btn-sm">
+                      <Plus size={14} />
+                      <span>Add</span>
+                    </button>
+                  </form>
+                </div>
+
+                {/* Destination Voting */}
+                <div className="glass-card">
+                  <h3>Destination Voting</h3>
+                  <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '16px', marginTop: '4px' }}>
+                    Propose vacation spots and vote collectively.
+                  </p>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '16px' }}>
+                    {group.votes.map((v, i) => (
+                      <div key={i} className="vote-card">
+                        <div>
+                          <strong style={{ fontSize: '14px' }}>{v.city}</strong>
+                          <div style={{ display: 'flex', gap: '4px', marginTop: '4px', flexWrap: 'wrap' }}>
+                            {v.votes.map(id => {
+                              const name = group.members.find(m => m.id === id)?.name || 'Someone';
+                              return (
+                                <span key={id} style={{ fontSize: '9px', background: 'rgba(255,255,255,0.05)', padding: '2px 6px', borderRadius: '4px', color: 'var(--text-secondary)' }}>
+                                  {name.split(' ')[0]}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        </div>
+                        <div className="vote-actions">
+                          <span className="votes-count">{v.votes.length} Votes</span>
+                          <button 
+                            className={`btn btn-sm ${v.votes.includes('mem-1') ? 'btn-primary' : 'btn-secondary'}`}
+                            onClick={() => handleVote(v.city)}
+                          >
+                            Vote
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <form onSubmit={handleAddVoteOption} style={{ display: 'flex', gap: '8px' }}>
+                    <input 
+                      type="text" 
+                      placeholder="Add destination..." 
+                      value={newVoteCity} 
+                      onChange={(e) => setNewVoteCity(e.target.value)} 
+                    />
+                    <button type="submit" className="btn btn-primary btn-sm">
+                      Propose
+                    </button>
+                  </form>
+                </div>
+
+              </div>
+
+              {/* Right Column: Group checklist & Chat */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                
+                {/* Collaborative packing checklist */}
+                <div className="glass-card">
+                  <h3>Collaborative Checklist</h3>
+                  <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '16px', marginTop: '4px' }}>
+                    Coordinate items checklist with assignees.
+                  </p>
+
+                  <div style={{ maxHeight: '200px', overflowY: 'auto', marginBottom: '16px' }}>
+                    {group.checklist.map(item => (
+                      <div key={item.id} className={`checklist-item ${item.checked ? 'checked' : ''}`}>
+                        <div 
+                          className={`checkbox-custom ${item.checked ? 'checked' : ''}`}
+                          onClick={() => toggleChecklist(item.id)}
+                        >
+                          {item.checked && <Check size={12} />}
+                        </div>
+                        <div style={{ flexGrow: 1 }}>
+                          <span style={{ fontSize: '13px' }}>{item.text}</span>
+                          {item.assigneeName && (
+                            <span style={{ fontSize: '10px', color: 'var(--primary-hover)', display: 'block', marginTop: '2px' }}>
+                              Assignee: {item.assigneeName}
+                            </span>
+                          )}
+                        </div>
+                        <button 
+                          className="btn btn-secondary btn-sm" 
+                          style={{ padding: '4px', minWidth: '24px', height: '24px' }}
+                          onClick={() => handleDeleteChecklist(item.id)}
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+
+                  <form onSubmit={handleAddChecklist} style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <input 
+                      type="text" 
+                      placeholder="Task item name..." 
+                      value={newChecklistText} 
+                      onChange={(e) => setNewChecklistText(e.target.value)} 
+                      style={{ flex: 1, minWidth: '130px' }}
+                    />
+                    <select 
+                      value={newChecklistAssignee} 
+                      onChange={(e) => setNewChecklistAssignee(e.target.value)}
+                      style={{ width: '130px' }}
+                    >
+                      {group.members.map(m => (
+                        <option key={m.id} value={m.name}>{m.name}</option>
+                      ))}
+                    </select>
+                    <button type="submit" className="btn btn-primary btn-sm">
+                      Add Task
+                    </button>
+                  </form>
+                </div>
+
+                {/* Group Chat Room */}
+                <div className="glass-card" style={{ display: 'flex', flexDirection: 'column' }}>
+                  <h3>Group Live Chat</h3>
+                  <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '16px', marginTop: '4px' }}>
+                    Brainstorm with peers. Sends simulated responses.
+                  </p>
+
+                  <div className="chat-container" style={{ height: '250px' }}>
+                    <div className="chat-history">
+                      {group.chatHistory.map(msg => (
+                        <div 
+                          key={msg.id} 
+                          className={`chat-msg ${msg.sender.includes('(You)') ? 'chat-msg-user' : 'chat-msg-ai'}`}
+                          style={{ maxWidth: '85%' }}
+                        >
+                          <div style={{ fontSize: '11px', fontWeight: 600, color: msg.sender.includes('(You)') ? 'rgba(255,255,255,0.8)' : 'var(--primary-hover)', marginBottom: '2px' }}>
+                            {msg.sender.split(' ')[0]}
+                          </div>
+                          <div>{msg.text}</div>
+                          <div className="chat-msg-time">{msg.timestamp}</div>
+                        </div>
+                      ))}
+                      <div ref={groupChatEndRef} />
+                    </div>
+
+                    <form onSubmit={handleSendGroupChat} className="chat-input-area">
+                      <input 
+                        type="text" 
+                        placeholder="Message group..." 
+                        value={chatInput}
+                        onChange={(e) => setChatInput(e.target.value)}
+                      />
+                      <button type="submit" className="btn btn-primary" style={{ padding: '12px' }}>
+                        <Send size={16} />
+                      </button>
+                    </form>
+                  </div>
+                </div>
+
+              </div>
+
+            </div>
+          </div>
+        )}
+
+        {/* Tab 4: EXPENSES */}
+        {activeTab === 'expenses' && (
+          <div>
+            <div className="panel-header">
+              <h1 className="panel-title">💸 Expense Splitter</h1>
+              <p className="panel-subtitle">Record common expenses, divide split shares, and simplify final debts (Splitwise style).</p>
+            </div>
+
+            <div className="grid-2col">
+              
+              {/* Add & Settle Up Column */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                
+                {/* Balance & Debt Settlements Sheet */}
+                <div className="glass-card">
+                  <h3>Debts Settlement Summary</h3>
+                  <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '16px', marginTop: '4px' }}>
+                    Simplified balance sheets. Click UPI button to pay or mark settled.
+                  </p>
+
+                  {settlementsList.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '16px', color: 'var(--accent)' }}>
+                      🎉 All group expenses are fully settled up!
+                    </div>
+                  ) : (
+                    <div className="settlement-card">
+                      <div className="settlement-title">
+                        <TrendingUp size={16} />
+                        <span>Active Dues to Clear</span>
+                      </div>
+                      <ul className="settlement-list">
+                        {settlementsList.map((s, idx) => {
+                          const toMember = group.members.find(m => m.name === s.to);
+                          return (
+                            <li key={idx} className="settlement-item">
+                              <span>
+                                <strong>{s.from}</strong> owes <strong>{s.to}</strong>:
+                              </span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>₹{s.amount.toLocaleString('en-IN')}</span>
+                                {toMember?.upi ? (
+                                  <button 
+                                    className="upi-pay-btn"
+                                    onClick={() => setSettlementModal(s)}
+                                  >
+                                    Pay UPI
+                                  </button>
+                                ) : (
+                                  <button 
+                                    className="btn btn-secondary btn-sm"
+                                    style={{ padding: '2px 6px', fontSize: '10px' }}
+                                    onClick={() => handleSettleUp(s.from, s.to, s.amount)}
+                                  >
+                                    Mark Settled
+                                  </button>
+                                )}
+                              </div>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+
+                {/* Add Expense Form */}
+                <div className="glass-card">
+                  <h3>Add New Expense</h3>
+                  <form onSubmit={handleAddExpense} style={{ marginTop: '16px' }}>
+                    <div className="form-group">
+                      <label>Expense Title / Description</label>
+                      <input 
+                        type="text" 
+                        value={expenseTitle} 
+                        onChange={(e) => setExpenseTitle(e.target.value)} 
+                        placeholder="e.g. Flight tickets, Dinner, Taxi rental..." 
+                        required 
+                      />
+                    </div>
+
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label>Amount (₹ INR)</label>
+                        <input 
+                          type="number" 
+                          min="1" 
+                          value={expenseAmount} 
+                          onChange={(e) => setExpenseAmount(e.target.value)} 
+                          placeholder="Amount in Rupees" 
+                          required 
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label>Paid By</label>
+                        <select 
+                          value={expensePaidBy} 
+                          onChange={(e) => setExpensePaidBy(e.target.value)}
+                        >
+                          {group.members.map(m => (
+                            <option key={m.id} value={m.name}>{m.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="form-group">
+                      <label>Category</label>
+                      <select 
+                        value={expenseCategory} 
+                        onChange={(e) => setExpenseCategory(e.target.value as any)}
+                      >
+                        <option value="accommodation">Accommodation 🏨</option>
+                        <option value="transport">Transport / Fuel 🚗</option>
+                        <option value="food">Food & Diners 🍛</option>
+                        <option value="sightseeing">Sightseeing 🏛️</option>
+                        <option value="shopping">Shopping 🛍️</option>
+                        <option value="emergency">Emergency / Other 🚨</option>
+                      </select>
+                    </div>
+
+                    <div className="form-group">
+                      <label>Split With (Check all that apply)</label>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '6px' }}>
+                        {group.members.map(m => (
+                          <label key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', textTransform: 'none', fontSize: '13px', cursor: 'pointer' }}>
+                            <input 
+                              type="checkbox" 
+                              checked={expenseSplitWith.includes(m.name)}
+                              style={{ width: 'auto' }}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setExpenseSplitWith(prev => [...prev, m.name]);
+                                } else {
+                                  setExpenseSplitWith(prev => prev.filter(name => name !== m.name));
+                                }
+                              }}
+                            />
+                            <span>{m.name}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+
+                    <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '12px' }}>
+                      Add Expense Record
+                    </button>
+                  </form>
+                </div>
+
+              </div>
+
+              {/* Expense Ledger Column */}
+              <div className="glass-card" style={{ display: 'flex', flexDirection: 'column' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                  <h3>Expense Ledger History</h3>
+                  <span className="badge" style={{ background: 'rgba(255,255,255,0.05)', color: 'var(--text-primary)' }}>
+                    Total: ₹{expenses.reduce((acc, curr) => acc + curr.amount, 0).toLocaleString('en-IN')}
+                  </span>
+                </div>
+
+                <div style={{ overflowY: 'auto', flexGrow: 1, maxHeight: '520px' }}>
+                  {expenses.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-secondary)' }}>
+                      No expenses recorded yet.
+                    </div>
+                  ) : (
+                    expenses.map(exp => (
+                      <div key={exp.id} className="expense-item">
+                        <div className="expense-info">
+                          <span className="expense-title">{exp.title}</span>
+                          <span className="expense-details">
+                            Paid by <strong>{exp.paidBy}</strong> • Split with {exp.splitWith.length} people
+                          </span>
+                          <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
+                            <span className="badge" style={{ fontSize: '9px', padding: '2px 6px' }}>{exp.date}</span>
+                            <span className={`badge badge-${exp.category}`} style={{ fontSize: '9px', padding: '2px 6px' }}>{exp.category}</span>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                          <span className="expense-amount">₹{exp.amount.toLocaleString('en-IN')}</span>
+                          <button 
+                            className="btn btn-secondary btn-sm" 
+                            style={{ padding: '4px', minWidth: '24px', height: '24px' }}
+                            onClick={() => handleDeleteExpense(exp.id)}
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+            </div>
+          </div>
+        )}
+
+        {/* Tab 5: TRIP COMPANION CHATBOT */}
+        {activeTab === 'chatbot' && (
+          <div>
+            <div className="panel-header">
+              <h1 className="panel-title">💬 TripPilot AI Assistant</h1>
+              <p className="panel-subtitle">Chat with a travel planner assistant. It knows your destination, dates, and settings.</p>
+            </div>
+
+            <div className="glass-card" style={{ padding: 0 }}>
+              <div className="chat-container">
+                
+                {/* Chat Message Box */}
+                <div className="chat-history">
+                  {chatbotMessages.map(msg => (
+                    <div 
+                      key={msg.id} 
+                      className={`chat-msg ${msg.isAI ? 'chat-msg-ai' : 'chat-msg-user'}`}
+                    >
+                      <strong style={{ fontSize: '11px', display: 'block', marginBottom: '4px', color: msg.isAI ? 'var(--primary-hover)' : 'rgba(255, 255, 255, 0.8)' }}>
+                        {msg.sender}
+                      </strong>
+                      <div style={{ whiteSpace: 'pre-wrap' }}>
+                        {msg.isAI ? renderFormattedMessageText(msg.text) : msg.text}
+                      </div>
+                      <div className="chat-msg-time">{msg.timestamp}</div>
+                    </div>
+                  ))}
+                  
+                  {botLoading && (
+                    <div className="chat-msg chat-msg-ai">
+                      <strong style={{ fontSize: '11px', display: 'block', color: 'var(--primary-hover)' }}>TripPilot</strong>
+                      <div style={{ display: 'flex', gap: '4px', alignItems: 'center', height: '20px' }}>
+                        <span className="dot animate-pulse">●</span>
+                        <span className="dot animate-pulse" style={{ animationDelay: '0.2s' }}>●</span>
+                        <span className="dot animate-pulse" style={{ animationDelay: '0.4s' }}>●</span>
+                      </div>
+                    </div>
+                  )}
+                  <div ref={chatEndRef} />
+                </div>
+
+                {/* Quick Chips suggestions */}
+                <div className="chat-chips">
+                  <div className="chat-chip" onClick={() => handleSendChatbot(undefined, "Is UPI accepted widely here?")}>
+                    💳 UPI acceptance?
+                  </div>
+                  <div className="chat-chip" onClick={() => handleSendChatbot(undefined, "What is the temple dress code?")}>
+                    🛕 Temple dress code?
+                  </div>
+                  <div className="chat-chip" onClick={() => handleSendChatbot(undefined, "What are tipping standards?")}>
+                    🪙 Tipping guidelines?
+                  </div>
+                  {activeTrip && (
+                    <div className="chat-chip" onClick={() => handleSendChatbot(undefined, `How can I save costs on my ₹${activeTrip.budgetLimit} budget?`)}>
+                      💸 Budget tips
+                    </div>
+                  )}
+                </div>
+
+                {/* Input form */}
+                <form onSubmit={(e) => handleSendChatbot(e)} className="chat-input-area">
+                  <input 
+                    type="text" 
+                    placeholder="Ask TripPilot travel questions..." 
+                    value={botQuery}
+                    onChange={(e) => setBotQuery(e.target.value)}
+                    disabled={botLoading}
+                  />
+                  <button 
+                    type="submit" 
+                    className="btn btn-primary" 
+                    style={{ padding: '12px' }}
+                    disabled={botLoading}
+                  >
+                    <Send size={16} />
+                  </button>
+                </form>
+
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Tab 6: SETTINGS */}
+        {activeTab === 'settings' && (
+          <div>
+            <div className="panel-header">
+              <h1 className="panel-title">⚙️ App Settings</h1>
+              <p className="panel-subtitle">Configure OpenAI API Keys, AI Models, and customize your user travel profile.</p>
+            </div>
+
+            <div className="grid-2col">
+              
+              {/* API Configuration Card */}
+              <div className="glass-card">
+                <h3>API Key Configurations</h3>
+                {import.meta.env.VITE_OPENAI_API_KEY ? (
+                  <div style={{ marginBlock: '8px 16px', padding: '10px 14px', background: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.2)', borderRadius: '8px', color: '#34d399', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span>🟢 OpenAI API Key configured via `.env` file</span>
+                  </div>
+                ) : (
+                  <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '20px', marginTop: '4px' }}>
+                    Provide an OpenAI key to run real GPT responses for itinerary planning and safety guides.
+                  </p>
+                )}
+
+                <form onSubmit={handleSaveSettings}>
+                  <div className="form-group">
+                    <label>OpenAI API Key</label>
+                    <div style={{ position: 'relative' }}>
+                      <input 
+                        type={showApiKey ? 'text' : 'password'} 
+                        value={tempOpenaiKey} 
+                        onChange={(e) => setTempOpenaiKey(e.target.value)} 
+                        placeholder="sk-proj-..." 
+                      />
+                      <button 
+                        type="button"
+                        style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}
+                        onClick={() => setShowApiKey(!showApiKey)}
+                      >
+                        {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label>AI GPT Model Selector</label>
+                    <select 
+                      value={tempModel} 
+                      onChange={(e) => setTempModel(e.target.value)}
+                    >
+                      <option value="gpt-4o-mini">gpt-4o-mini (Faster, Cheaper)</option>
+                      <option value="gpt-4o">gpt-4o (Smartest, High-fidelity)</option>
+                    </select>
+                  </div>
+
+                  <div className="form-group" style={{ marginTop: '24px', borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
+                    <label>Profile Config (UPI Settlements)</label>
+                    <div className="form-row" style={{ marginTop: '12px' }}>
+                      <div className="form-group">
+                        <label>Your Name</label>
+                        <input 
+                          type="text" 
+                          value={tempUserName} 
+                          onChange={(e) => setTempUserName(e.target.value)} 
+                          placeholder="Dhruv" 
+                          required 
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label>Your UPI ID</label>
+                        <input 
+                          type="text" 
+                          value={tempUserUpi} 
+                          onChange={(e) => setTempUserUpi(e.target.value)} 
+                          placeholder="username@upi" 
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '12px' }}>
+                    Save & Persist Settings
+                  </button>
+                </form>
+              </div>
+
+              {/* Tips & Instructions Card */}
+              <div className="glass-card">
+                <h3>Getting Started Instructions</h3>
+                <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '14px', fontSize: '13px', lineHeight: 1.5, color: 'var(--text-secondary)' }}>
+                  
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    <span style={{ fontSize: '16px' }}>🔑</span>
+                    <div>
+                      <strong>OpenAI API Key:</strong> We support direct connection. Your keys are stored locally in the browser sandbox and never sent to external servers other than direct OpenAI API calls.
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    <span style={{ fontSize: '16px' }}>🤖</span>
+                    <div>
+                      <strong>Fallback Simulator:</strong> If no API key is saved, the application uses our state-of-the-art **Mock Generative Engine** for Goa, Jaipur, and Manali, or adaptively handles any generic destination automatically.
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    <span style={{ fontSize: '16px' }}>💬</span>
+                    <div>
+                      <strong>AI Context:</strong> Chatting with the AI companion will automatically include data about your current generated trip, keeping it context-aware of your budget, dates, and travelers.
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    <span style={{ fontSize: '16px' }}>💸</span>
+                    <div>
+                      <strong>Splitwise Ledger:</strong> Adding expenses dynamically calculates the net dues for settlements. Clearing debts via the UPI QR link modal is safe and generates quick payment actions.
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+
+            </div>
+          </div>
+        )}
+
+      </main>
+
+      {/* UPI QR Payment Modal */}
+      {settlementModal && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: '20px' }}>
+          <div className="glass-panel" style={{ background: 'var(--bg-surface)', padding: '28px', maxWidth: '380px', width: '100%', display: 'flex', flexDirection: 'column', gap: '18px' }}>
+            <h3 style={{ textAlign: 'center', color: 'var(--accent)' }}>💳 UPI Payment Settlement</h3>
+            
+            <p style={{ fontSize: '13px', textAlign: 'center', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+              Scan the mock QR code or click pay to settle <strong>₹{settlementModal.amount.toLocaleString('en-IN')}</strong> from <strong>{settlementModal.from}</strong> to <strong>{settlementModal.to}</strong>.
+            </p>
+
+            {/* Fake QR code representation */}
+            <div style={{ alignSelf: 'center', background: 'white', padding: '16px', borderRadius: '12px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+              <div style={{ width: '160px', height: '160px', border: '8px double #111319', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '4px', background: '#eee' }}>
+                {/* Visual blocks */}
+                <div style={{ background: '#111319' }}></div><div style={{ background: '#111319' }}></div><div></div><div style={{ background: '#111319' }}></div>
+                <div></div><div style={{ background: '#111319' }}></div><div style={{ background: '#111319' }}></div><div></div>
+                <div style={{ background: '#111319' }}></div><div></div><div style={{ background: '#111319' }}></div><div style={{ background: '#111319' }}></div>
+                <div style={{ background: '#111319' }}></div><div style={{ background: '#111319' }}></div><div></div><div style={{ background: '#111319' }}></div>
+              </div>
+              <span style={{ fontSize: '10px', color: '#666', fontWeight: 600 }}>
+                {group.members.find(m => m.name === settlementModal.to)?.upi || 'UPI Direct ID'}
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {/* Deep Link to UPI */}
+              <a 
+                href={`upi://pay?pa=${group.members.find(m => m.name === settlementModal.to)?.upi}&pn=${encodeURIComponent(settlementModal.to)}&am=${settlementModal.amount}&tn=Trippy%20Settlement&cu=INR`}
+                className="btn btn-primary"
+                style={{ textAlign: 'center' }}
+                onClick={() => {
+                  handleSettleUp(settlementModal.from, settlementModal.to, settlementModal.amount);
+                }}
+              >
+                Pay via UPI App Link
+              </a>
+              <button 
+                className="btn btn-secondary"
+                onClick={() => setSettlementModal(null)}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}
