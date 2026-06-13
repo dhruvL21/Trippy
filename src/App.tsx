@@ -13,11 +13,14 @@ import {
   Sparkles, 
   Send, 
   CheckCircle,
-  TrendingUp
+  TrendingUp,
+  Edit2
 } from 'lucide-react';
 import { AIService } from './services/ai';
 import type { Trip, Group, Member, ChecklistItem, ChatMessage, Expense, SafetyReport, AppSettings } from './types';
 import './App.css';
+
+const generateId = () => Math.random().toString(36).substring(2, 9);
 
 // Default mock group for immediate interaction
 const DEFAULT_GROUP: Group = {
@@ -61,7 +64,11 @@ const DEFAULT_SETTINGS: AppSettings = {
   googleMapsApiKey: '',
   model: 'gpt-4o-mini',
   userName: 'Dhruv',
-  userUpi: 'dhruv@upi'
+  userUpi: 'dhruv@upi',
+  personalInfo: '',
+  phone: '',
+  email: '',
+  emergencyContact: ''
 };
 
 const INTERESTS_LIST = [
@@ -85,6 +92,18 @@ export default function App() {
     const parsed = saved ? JSON.parse(saved) : DEFAULT_SETTINGS;
     if (!parsed.openaiApiKey && import.meta.env.VITE_OPENAI_API_KEY) {
       parsed.openaiApiKey = import.meta.env.VITE_OPENAI_API_KEY;
+    }
+    if (parsed.personalInfo === undefined) {
+      parsed.personalInfo = '';
+    }
+    if (parsed.phone === undefined) {
+      parsed.phone = '';
+    }
+    if (parsed.email === undefined) {
+      parsed.email = '';
+    }
+    if (parsed.emergencyContact === undefined) {
+      parsed.emergencyContact = '';
     }
     return parsed;
   });
@@ -149,6 +168,14 @@ export default function App() {
   // Settings Temp States
   const [tempUserName, setTempUserName] = useState(settings.userName);
   const [tempUserUpi, setTempUserUpi] = useState(settings.userUpi);
+  const [tempPersonalInfo, setTempPersonalInfo] = useState(settings.personalInfo || '');
+  const [tempPhone, setTempPhone] = useState(settings.phone || '');
+  const [tempEmail, setTempEmail] = useState(settings.email || '');
+  const [tempEmergencyContact, setTempEmergencyContact] = useState(settings.emergencyContact || '');
+
+  // Group Name Edit State
+  const [isEditingGroupName, setIsEditingGroupName] = useState(false);
+  const [tempGroupNameInput, setTempGroupNameInput] = useState('');
 
   // Group Form States
   const [newMemberName, setNewMemberName] = useState('');
@@ -209,10 +236,12 @@ export default function App() {
     localStorage.setItem('trippy_saved_trips', JSON.stringify(savedTrips));
   }, [savedTrips]);
 
-  // Check for shared trip query param on mount
+  // Check for shared trip or group invite query param on mount
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const tripParam = params.get('trip');
+    const joinParam = params.get('join');
+
     if (tripParam) {
       try {
         const decoded = JSON.parse(decodeURIComponent(atob(tripParam)));
@@ -230,8 +259,37 @@ export default function App() {
       } catch (err) {
         console.error("Failed to decode shared trip from URL:", err);
       }
+    } else if (joinParam) {
+      try {
+        const decoded = JSON.parse(decodeURIComponent(atob(joinParam)));
+        if (decoded.activeTrip) {
+          setActiveTrip(decoded.activeTrip);
+          localStorage.setItem('trippy_active_trip', JSON.stringify(decoded.activeTrip));
+        }
+        if (decoded.group) {
+          setGroup(decoded.group);
+          localStorage.setItem('trippy_group', JSON.stringify(decoded.group));
+        }
+        if (decoded.expenses) {
+          setExpenses(decoded.expenses);
+          localStorage.setItem('trippy_expenses', JSON.stringify(decoded.expenses));
+        }
+        
+        // Load related safety report
+        if (decoded.activeTrip) {
+          AIService.generateSafetyReport(decoded.activeTrip.destination, settings.openaiApiKey, settings.model)
+            .then(report => setSafetyReport(report))
+            .catch(err => console.error('Failed to load safety report for shared trip', err));
+        }
+        
+        // Clean query parameter from URL
+        window.history.replaceState({}, document.title, window.location.pathname);
+        alert(`Successfully joined group trip "${decoded.group?.name || 'Vacation'}"! 👥✈️`);
+      } catch (err) {
+        console.error("Failed to decode shared group from URL:", err);
+      }
     }
-  }, []);
+  }, [settings.model, settings.openaiApiKey]);
 
   // Scroll chats to bottom
   useEffect(() => {
@@ -310,6 +368,28 @@ export default function App() {
     }
   };
 
+  const handleShareGroup = () => {
+    try {
+      const shareData = {
+        activeTrip: activeTrip,
+        group: group,
+        expenses: expenses
+      };
+      const serialized = btoa(encodeURIComponent(JSON.stringify(shareData)));
+      const inviteUrl = `${window.location.origin}${window.location.pathname}?join=${serialized}`;
+      
+      navigator.clipboard.writeText(inviteUrl).then(() => {
+        alert('Group invite link copied to clipboard! Share it with friends to sync the itinerary, checklist, and expenses.');
+      }).catch(err => {
+        console.error('Failed to copy link:', err);
+        prompt('Copy this link to invite group members:', inviteUrl);
+      });
+    } catch (err) {
+      console.error('Failed to serialize group data:', err);
+      alert('Failed to generate invite link.');
+    }
+  };
+
   const toggleInterest = (id: string) => {
     setSelectedInterests(prev => 
       prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
@@ -347,7 +427,7 @@ export default function App() {
 
       // Initialize Bot greeting based on trip
       const firstMsg: ChatMessage = {
-        id: Math.random().toString(36).substring(2, 9),
+        id: generateId(),
         sender: 'TripPilot',
         text: `Awesome! Generated your trip to **${destination}**! 🎒\n\nI can give you customized safety guides, help manage expenses, or discuss temple dress codes and transport options here.`,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -472,7 +552,7 @@ export default function App() {
       
       // Update chatbot with notice
       const botNotice: ChatMessage = {
-        id: Math.random().toString(36).substring(2, 9),
+        id: generateId(),
         sender: 'TripPilot',
         text: `⚠️ **Itinerary Re-routed**: I have dynamically updated the schedule for **Day ${activeItineraryDay}** in ${activeTrip.destination} due to your report of: *"${reason}"*. Out-door plans have been adjusted to keep your journey smooth!`,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -494,7 +574,11 @@ export default function App() {
       googleMapsApiKey: settings.googleMapsApiKey,
       model: settings.model,
       userName: tempUserName,
-      userUpi: tempUserUpi
+      userUpi: tempUserUpi,
+      personalInfo: tempPersonalInfo,
+      phone: tempPhone,
+      email: tempEmail,
+      emergencyContact: tempEmergencyContact
     };
     setSettings(updatedSettings);
 
@@ -516,13 +600,23 @@ export default function App() {
     alert('Settings saved successfully!');
   };
 
+  const handleSaveGroupName = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!tempGroupNameInput.trim()) return;
+    setGroup(prev => ({
+      ...prev,
+      name: tempGroupNameInput.trim()
+    }));
+    setIsEditingGroupName(false);
+  };
+
   // Group Handlers
   const handleAddMember = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMemberName.trim()) return;
 
     const newMember: Member = {
-      id: Math.random().toString(36).substring(2, 9),
+      id: generateId(),
       name: newMemberName.trim(),
       upi: newMemberUpi.trim() || undefined
     };
@@ -578,7 +672,7 @@ export default function App() {
     if (!newChecklistText.trim()) return;
 
     const newItem: ChecklistItem = {
-      id: Math.random().toString(36).substring(2, 9),
+      id: generateId(),
       text: newChecklistText.trim(),
       checked: false,
       assigneeName: newChecklistAssignee
@@ -612,7 +706,7 @@ export default function App() {
     if (!chatInput.trim()) return;
 
     const myMessage: ChatMessage = {
-      id: Math.random().toString(36).substring(2, 9),
+      id: generateId(),
       sender: `${settings.userName} (You)`,
       text: chatInput.trim(),
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -641,7 +735,7 @@ export default function App() {
       const randomReply = peerReplies[Math.floor(Math.random() * peerReplies.length)];
 
       const peerMessage: ChatMessage = {
-        id: Math.random().toString(36).substring(2, 9),
+        id: generateId(),
         sender: randomPeer.name,
         text: randomReply,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -660,7 +754,7 @@ export default function App() {
     if (!expenseTitle.trim() || !expenseAmount || parseFloat(expenseAmount) <= 0) return;
 
     const newExpense: Expense = {
-      id: Math.random().toString(36).substring(2, 9),
+      id: generateId(),
       title: expenseTitle.trim(),
       amount: parseFloat(expenseAmount),
       paidBy: expensePaidBy,
@@ -678,7 +772,7 @@ export default function App() {
     if (activeTrip && sumTotal > activeTrip.budgetLimit) {
       setTimeout(() => {
         const warningMsg: ChatMessage = {
-          id: Math.random().toString(36).substring(2, 9),
+          id: generateId(),
           sender: 'TripPilot',
           text: `🚨 **Budget Alert**: Your total group spending (₹${sumTotal}) has exceeded the planned budget limit of **₹${activeTrip.budgetLimit}**! Consider using the **"Over Budget"** replanning trigger in the Trip Planner tab to optimize remaining days.`,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -765,7 +859,7 @@ export default function App() {
   const handleSettleUp = (from: string, to: string, amount: number) => {
     // Inject a settling expense record
     const settlingExpense: Expense = {
-      id: Math.random().toString(36).substring(2, 9),
+      id: generateId(),
       title: `Settlement: ${from} paid ${to}`,
       amount: amount,
       paidBy: from,
@@ -785,7 +879,7 @@ export default function App() {
     if (!query.trim()) return;
 
     const userMsg: ChatMessage = {
-      id: Math.random().toString(36).substring(2, 9),
+      id: generateId(),
       sender: `${settings.userName} (You)`,
       text: query.trim(),
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -806,10 +900,24 @@ export default function App() {
 
       history.push({ role: 'user', content: query.trim() });
 
-      const reply = await AIService.askChatbot(history, activeTrip, settings.openaiApiKey, settings.model);
+      const profileContext = [
+        settings.userName ? `Name: ${settings.userName}` : '',
+        settings.email ? `Email: ${settings.email}` : '',
+        settings.phone ? `Phone: ${settings.phone}` : '',
+        settings.emergencyContact ? `Emergency Contact: ${settings.emergencyContact}` : '',
+        settings.personalInfo ? `Preferences/Notes: ${settings.personalInfo}` : ''
+      ].filter(Boolean).join('\n');
+
+      const reply = await AIService.askChatbot(
+        history, 
+        activeTrip, 
+        settings.openaiApiKey, 
+        settings.model,
+        profileContext
+      );
       
       const aiMsg: ChatMessage = {
-        id: Math.random().toString(36).substring(2, 9),
+        id: generateId(),
         sender: 'TripPilot',
         text: reply,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -819,7 +927,7 @@ export default function App() {
       setChatbotMessages(prev => [...prev, aiMsg]);
     } catch (err: any) {
       const errorMsg: ChatMessage = {
-        id: Math.random().toString(36).substring(2, 9),
+        id: generateId(),
         sender: 'TripPilot',
         text: `❌ Failed to get response: ${err.message || 'Check your internet connection or OpenAI key.'}`,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -834,7 +942,7 @@ export default function App() {
   // Custom parser to format markdown bold, lists, headers inside AI responses
   const renderFormattedMessageText = (text: string) => {
     return text.split('\n').map((line, idx) => {
-      let trimmed = line.trim();
+      const trimmed = line.trim();
       
       // Header Level 3
       if (trimmed.startsWith('### ')) {
@@ -1535,14 +1643,50 @@ export default function App() {
               {/* Left Column: Group Members & Destination Voting */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                 
-                {/* Members list */}
                 <div className="glass-card">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                    <h3>Group Name: {group.name}</h3>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
+                    {isEditingGroupName ? (
+                      <form onSubmit={handleSaveGroupName} style={{ display: 'flex', gap: '8px', alignItems: 'center', flexGrow: 1 }}>
+                        <input 
+                          type="text" 
+                          value={tempGroupNameInput} 
+                          onChange={(e) => setTempGroupNameInput(e.target.value)} 
+                          style={{ padding: '6px 12px', fontSize: '14px', height: '36px', background: 'rgba(8, 9, 12, 0.6)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text-primary)', width: 'auto', flexGrow: 1 }}
+                          required 
+                          autoFocus
+                        />
+                        <button type="submit" className="btn btn-primary btn-sm" style={{ height: '36px' }}>Save</button>
+                        <button type="button" className="btn btn-secondary btn-sm" style={{ height: '36px' }} onClick={() => setIsEditingGroupName(false)}>Cancel</button>
+                      </form>
+                    ) : (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <h3 style={{ margin: 0 }}>Group Name: {group.name}</h3>
+                        <button 
+                          type="button" 
+                          onClick={() => {
+                            setTempGroupNameInput(group.name);
+                            setIsEditingGroupName(true);
+                          }}
+                          style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '4px' }}
+                          title="Edit Group Name"
+                        >
+                          <Edit2 size={16} />
+                        </button>
+                      </div>
+                    )}
                     <span className="badge" style={{ background: 'var(--primary-light)', color: 'var(--primary-hover)' }}>
                       {group.members.length} Members
                     </span>
                   </div>
+
+                  <button 
+                    className="btn btn-secondary btn-sm" 
+                    onClick={handleShareGroup}
+                    style={{ width: '100%', marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                    title="Generate a link to share this group, itinerary, checklist, and expenses with friends"
+                  >
+                    <span>🔗 Copy Group Invite Link</span>
+                  </button>
 
                   <ul style={{ display: 'flex', flexDirection: 'column', gap: '10px', listStyle: 'none', marginBottom: '16px' }}>
                     {group.members.map(member => (
@@ -2068,6 +2212,46 @@ export default function App() {
                       value={tempUserUpi} 
                       onChange={(e) => setTempUserUpi(e.target.value)} 
                       placeholder="username@upi" 
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label>Email Address</label>
+                    <input 
+                      type="email" 
+                      value={tempEmail} 
+                      onChange={(e) => setTempEmail(e.target.value)} 
+                      placeholder="dhruv@example.com" 
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label>Phone Number</label>
+                    <input 
+                      type="tel" 
+                      value={tempPhone} 
+                      onChange={(e) => setTempPhone(e.target.value)} 
+                      placeholder="+91 XXXXX XXXXX" 
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label>Emergency Contact Info</label>
+                    <input 
+                      type="text" 
+                      value={tempEmergencyContact} 
+                      onChange={(e) => setTempEmergencyContact(e.target.value)} 
+                      placeholder="e.g. Aarav (Brother): +91 98765 43210" 
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label>Personal Preferences / Medical Notes</label>
+                    <textarea 
+                      value={tempPersonalInfo} 
+                      onChange={(e) => setTempPersonalInfo(e.target.value)} 
+                      placeholder="e.g. Vegetarian, A+ blood group, allergic to peanuts"
+                      rows={3}
                     />
                   </div>
 

@@ -153,8 +153,8 @@ Make sure the total cost does NOT exceed ₹${params.budgetLimit} INR. Include r
     const dest = params.destination.split(',')[0].trim().toLowerCase();
     
     // Pick or construct base days
-    let baseDays: Omit<ItineraryDay, 'date'>[] = [];
-    let mockPackingList: string[] = ['Aadhaar Card / ID proof', 'UPI Apps installed', 'Power bank', 'Comfortable walking shoes', 'Refillable water bottle'];
+    let baseDays: Omit<ItineraryDay, 'date'>[];
+    const mockPackingList: string[] = ['Aadhaar Card / ID proof', 'UPI Apps installed', 'Power bank', 'Comfortable walking shoes', 'Refillable water bottle'];
 
     if (dest.includes('jaipur')) {
       baseDays = [
@@ -290,7 +290,7 @@ Make sure the total cost does NOT exceed ₹${params.budgetLimit} INR. Include r
     }
 
     // Adapt duration
-    let finalItinerary: ItineraryDay[] = [];
+    const finalItinerary: ItineraryDay[] = [];
     for (let i = 0; i < durationDays; i++) {
       const baseDayIndex = i % baseDays.length;
       const baseDay = baseDays[baseDayIndex];
@@ -360,10 +360,10 @@ Make sure the total cost does NOT exceed ₹${params.budgetLimit} INR. Include r
     });
 
     // Add inter-city transport mock cost to Day 1
-    let intercityCostPerPerson = 0;
-    if (params.transportPreference === 'flight') intercityCostPerPerson = 4500;
-    else if (params.transportPreference === 'train') intercityCostPerPerson = 850;
-    else intercityCostPerPerson = 2500; // cab/bus/default
+    const intercityCostPerPerson = 
+      params.transportPreference === 'flight' ? 4500 :
+      params.transportPreference === 'train' ? 850 :
+      2500; // cab/bus/default
 
     const totalIntercityCost = intercityCostPerPerson * params.travelers;
     transport += totalIntercityCost;
@@ -664,7 +664,8 @@ Replanning parameters: Adjust the remaining hours of this day itinerary to be sa
     chatHistory: { role: 'user' | 'assistant' | 'system', content: string }[],
     contextTrip: Trip | null,
     apiKey: string,
-    model: string
+    model: string,
+    personalInfo?: string
   ): Promise<string> {
     const activeKey = apiKey || (import.meta.env.VITE_OPENAI_API_KEY as string);
     if (activeKey) {
@@ -686,6 +687,10 @@ Be concise, structural, and write in markdown format.`;
           transport: contextTrip.transportPreference,
           costSpent: contextTrip.costBreakdown.total
         })}`;
+      }
+
+      if (personalInfo && personalInfo.trim()) {
+        systemPrompt += `\n\nUser Personal Info / Preferences / Health & Safety Notes:\n${personalInfo.trim()}`;
       }
 
       const url = 'https://api.openai.com/v1/chat/completions';

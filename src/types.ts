@@ -119,4 +119,8 @@ export interface AppSettings {
   model: string;
   userName: string;
   userUpi: string;
+  personalInfo: string;
+  phone: string;
+  email: string;
+  emergencyContact: string;
 }
