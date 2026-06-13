@@ -7,7 +7,7 @@ export const AIService = {
   async callOpenAI(systemPrompt: string, userPrompt: string, isJson: boolean, apiKey: string, model: string = 'gpt-4o-mini'): Promise<string> {
     const activeKey = apiKey || (import.meta.env.VITE_OPENAI_API_KEY as string);
     if (!activeKey) {
-      throw new Error('OpenAI API Key is missing. Please configure it in Settings or set VITE_OPENAI_API_KEY in your .env file.');
+      throw new Error('OpenAI API Key is missing. Please set VITE_OPENAI_API_KEY in your .env file.');
     }
 
     const url = 'https://api.openai.com/v1/chat/completions';

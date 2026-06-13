@@ -12,8 +12,6 @@ import {
   AlertTriangle, 
   Sparkles, 
   Send, 
-  Eye, 
-  EyeOff, 
   CheckCircle,
   TrendingUp
 } from 'lucide-react';
@@ -131,7 +129,6 @@ export default function App() {
   });
 
   // --- UI Control States ---
-  const [showApiKey, setShowApiKey] = useState(false);
   const [loadingTrip, setLoadingTrip] = useState(false);
   const [loadingSafety, setLoadingSafety] = useState(false);
   const [activeItineraryDay, setActiveItineraryDay] = useState<number>(1);
@@ -152,8 +149,6 @@ export default function App() {
   // Settings Temp States
   const [tempUserName, setTempUserName] = useState(settings.userName);
   const [tempUserUpi, setTempUserUpi] = useState(settings.userUpi);
-  const [tempOpenaiKey, setTempOpenaiKey] = useState(settings.openaiApiKey);
-  const [tempModel, setTempModel] = useState(settings.model);
 
   // Group Form States
   const [newMemberName, setNewMemberName] = useState('');
@@ -494,10 +489,10 @@ export default function App() {
   const handleSaveSettings = (e: React.FormEvent) => {
     e.preventDefault();
     const updatedSettings: AppSettings = {
-      openaiApiKey: tempOpenaiKey,
+      openaiApiKey: settings.openaiApiKey,
       openweathermapApiKey: settings.openweathermapApiKey,
       googleMapsApiKey: settings.googleMapsApiKey,
-      model: tempModel,
+      model: settings.model,
       userName: tempUserName,
       userUpi: tempUserUpi
     };
@@ -1125,16 +1120,10 @@ export default function App() {
                     ) : (
                       <>
                         <Sparkles size={16} />
-                        <span>Generate Itinerary {settings.openaiApiKey ? 'with AI' : '(Mock Engine)'}</span>
+                        <span>Generate Itinerary</span>
                       </>
                     )}
                   </button>
-
-                  {!settings.openaiApiKey && (
-                    <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '8px', textAlign: 'center' }}>
-                      Tip: Add an OpenAI API key in **Settings** to get real-time dynamic AI generation!
-                    </p>
-                  )}
                 </form>
               </div>
 
@@ -2048,82 +2037,42 @@ export default function App() {
           <div>
             <div className="panel-header">
               <h1 className="panel-title">⚙️ App Settings</h1>
-              <p className="panel-subtitle">Configure OpenAI API Keys, AI Models, and customize your user travel profile.</p>
+              <p className="panel-subtitle">Customize your traveler profile, UPI details for expense settlements, and preferences.</p>
             </div>
 
             <div className="grid-2col">
               
-              {/* API Configuration Card */}
+              {/* Profile & Payments Settings Card */}
               <div className="glass-card">
-                <h3>API Key Configurations</h3>
-                {import.meta.env.VITE_OPENAI_API_KEY ? (
-                  <div style={{ marginBlock: '8px 16px', padding: '10px 14px', background: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.2)', borderRadius: '8px', color: '#34d399', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span>🟢 OpenAI API Key configured via `.env` file</span>
-                  </div>
-                ) : (
-                  <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '20px', marginTop: '4px' }}>
-                    Provide an OpenAI key to run real GPT responses for itinerary planning and safety guides.
-                  </p>
-                )}
+                <h3>Profile & Payments</h3>
+                <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '20px', marginTop: '4px' }}>
+                  Configure your display name and UPI ID for simplified expense splitting.
+                </p>
 
                 <form onSubmit={handleSaveSettings}>
                   <div className="form-group">
-                    <label>OpenAI API Key</label>
-                    <div style={{ position: 'relative' }}>
-                      <input 
-                        type={showApiKey ? 'text' : 'password'} 
-                        value={tempOpenaiKey} 
-                        onChange={(e) => setTempOpenaiKey(e.target.value)} 
-                        placeholder="sk-proj-..." 
-                      />
-                      <button 
-                        type="button"
-                        style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}
-                        onClick={() => setShowApiKey(!showApiKey)}
-                      >
-                        {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
-                      </button>
-                    </div>
+                    <label>Your Name</label>
+                    <input 
+                      type="text" 
+                      value={tempUserName} 
+                      onChange={(e) => setTempUserName(e.target.value)} 
+                      placeholder="Dhruv" 
+                      required 
+                    />
                   </div>
 
                   <div className="form-group">
-                    <label>AI GPT Model Selector</label>
-                    <select 
-                      value={tempModel} 
-                      onChange={(e) => setTempModel(e.target.value)}
-                    >
-                      <option value="gpt-4o-mini">gpt-4o-mini (Faster, Cheaper)</option>
-                      <option value="gpt-4o">gpt-4o (Smartest, High-fidelity)</option>
-                    </select>
-                  </div>
-
-                  <div className="form-group" style={{ marginTop: '24px', borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
-                    <label>Profile Config (UPI Settlements)</label>
-                    <div className="form-row" style={{ marginTop: '12px' }}>
-                      <div className="form-group">
-                        <label>Your Name</label>
-                        <input 
-                          type="text" 
-                          value={tempUserName} 
-                          onChange={(e) => setTempUserName(e.target.value)} 
-                          placeholder="Dhruv" 
-                          required 
-                        />
-                      </div>
-                      <div className="form-group">
-                        <label>Your UPI ID</label>
-                        <input 
-                          type="text" 
-                          value={tempUserUpi} 
-                          onChange={(e) => setTempUserUpi(e.target.value)} 
-                          placeholder="username@upi" 
-                        />
-                      </div>
-                    </div>
+                    <label>Your UPI ID</label>
+                    <input 
+                      type="text" 
+                      value={tempUserUpi} 
+                      onChange={(e) => setTempUserUpi(e.target.value)} 
+                      placeholder="username@upi" 
+                    />
                   </div>
 
                   <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '12px' }}>
-                    Save & Persist Settings
+                    Save Profile Settings
                   </button>
                 </form>
               </div>
@@ -2134,30 +2083,30 @@ export default function App() {
                 <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '14px', fontSize: '13px', lineHeight: 1.5, color: 'var(--text-secondary)' }}>
                   
                   <div style={{ display: 'flex', gap: '10px' }}>
-                    <span style={{ fontSize: '16px' }}>🔑</span>
+                    <span style={{ fontSize: '16px' }}>👤</span>
                     <div>
-                      <strong>OpenAI API Key:</strong> We support direct connection. Your keys are stored locally in the browser sandbox and never sent to external servers other than direct OpenAI API calls.
+                      <strong>Traveler Profile:</strong> Your name is used across the Group Coordination Hub and Checklist to automatically assign tasks and track your contributions.
                     </div>
                   </div>
 
                   <div style={{ display: 'flex', gap: '10px' }}>
-                    <span style={{ fontSize: '16px' }}>🤖</span>
+                    <span style={{ fontSize: '16px' }}>💳</span>
                     <div>
-                      <strong>Fallback Simulator:</strong> If no API key is saved, the application uses our state-of-the-art **Mock Generative Engine** for Goa, Jaipur, and Manali, or adaptively handles any generic destination automatically.
+                      <strong>UPI Settlements:</strong> Saving your UPI ID enables other members to pay you back directly using dynamically generated QR codes and deep links.
                     </div>
                   </div>
 
                   <div style={{ display: 'flex', gap: '10px' }}>
                     <span style={{ fontSize: '16px' }}>💬</span>
                     <div>
-                      <strong>AI Context:</strong> Chatting with the AI companion will automatically include data about your current generated trip, keeping it context-aware of your budget, dates, and travelers.
+                      <strong>AI Companion:</strong> Chatting with the AI companion automatically includes data about your current generated trip, keeping it context-aware of your destination, budget, and travel dates.
                     </div>
                   </div>
 
                   <div style={{ display: 'flex', gap: '10px' }}>
                     <span style={{ fontSize: '16px' }}>💸</span>
                     <div>
-                      <strong>Splitwise Ledger:</strong> Adding expenses dynamically calculates the net dues for settlements. Clearing debts via the UPI QR link modal is safe and generates quick payment actions.
+                      <strong>Splitwise Ledger:</strong> Adding group expenses dynamically calculates the net dues for settlements, helping keep your group trip budget on track.
                     </div>
                   </div>
 
