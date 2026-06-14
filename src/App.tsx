@@ -1608,7 +1608,8 @@ export default function App() {
     if (!newVoteCity.trim()) return;
     if (group.votes.some(v => v.city.toLowerCase() === newVoteCity.toLowerCase().trim())) return;
 
-    const updatedVotes = [...group.votes, { city: newVoteCity.trim(), votes: [] }];
+    const myName = settings.userName.replace(/\s*\(You\)$/i, '').trim();
+    const updatedVotes = [...group.votes, { city: newVoteCity.trim(), votes: [], proposedBy: myName }];
     setGroup(prev => ({
       ...prev,
       votes: updatedVotes
@@ -1617,15 +1618,40 @@ export default function App() {
     setNewVoteCity('');
   };
 
+  const handleDeleteVoteOption = (city: string) => {
+    const option = group.votes.find(v => v.city === city);
+    if (!option) return;
+
+    const myName = settings.userName.replace(/\s*\(You\)$/i, '').trim();
+    const isHost = group.hostId === 'mem-1';
+    const isCreator = !option.proposedBy || option.proposedBy.toLowerCase() === myName.toLowerCase();
+
+    if (!isHost && !isCreator && option.proposedBy) {
+      alert("Only the creator of this poll or the group admin can delete it.");
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to delete the destination option "${city}"?`)) return;
+
+    const updatedVotes = group.votes.filter(v => v.city !== city);
+    setGroup(prev => ({
+      ...prev,
+      votes: updatedVotes
+    }));
+    broadcastGroupUpdate('votes_sync', updatedVotes);
+  };
+
   const handleAddChecklist = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newChecklistText.trim()) return;
 
+    const myName = settings.userName.replace(/\s*\(You\)$/i, '').trim();
     const newItem: ChecklistItem = {
       id: generateId(),
       text: newChecklistText.trim(),
       checked: false,
-      assigneeName: newChecklistAssignee
+      assigneeName: newChecklistAssignee,
+      createdBy: myName
     };
 
     const updatedChecklist = [...group.checklist, newItem];
@@ -1646,6 +1672,18 @@ export default function App() {
   };
 
   const handleDeleteChecklist = (id: string) => {
+    const item = group.checklist.find(c => c.id === id);
+    if (!item) return;
+
+    const myName = settings.userName.replace(/\s*\(You\)$/i, '').trim();
+    const isHost = group.hostId === 'mem-1';
+    const isCreator = !item.createdBy || item.createdBy.toLowerCase() === myName.toLowerCase();
+
+    if (!isHost && !isCreator && item.createdBy) {
+      alert("Only the creator of this task or the group admin can delete it.");
+      return;
+    }
+
     const updatedChecklist = group.checklist.filter(c => c.id !== id);
     setGroup(prev => ({ ...prev, checklist: updatedChecklist }));
     broadcastGroupUpdate('checklist_sync', updatedChecklist);
@@ -3128,6 +3166,21 @@ export default function App() {
                           >
                             Vote
                           </button>
+                          {(() => {
+                            const myName = settings.userName.replace(/\s*\(You\)$/i, '').trim();
+                            const isHost = group.hostId === 'mem-1';
+                            const isCreator = !v.proposedBy || v.proposedBy.toLowerCase() === myName.toLowerCase();
+                            return (isHost || isCreator) && (
+                              <button 
+                                className="btn btn-secondary btn-sm" 
+                                style={{ padding: '4px', minWidth: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                onClick={() => handleDeleteVoteOption(v.city)}
+                                title="Delete destination option"
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            );
+                          })()}
                         </div>
                       </div>
                     ))}
@@ -3175,13 +3228,20 @@ export default function App() {
                             </span>
                           )}
                         </div>
-                        <button 
-                          className="btn btn-secondary btn-sm" 
-                          style={{ padding: '4px', minWidth: '24px', height: '24px' }}
-                          onClick={() => handleDeleteChecklist(item.id)}
-                        >
-                          <Trash2 size={12} />
-                        </button>
+                        {(() => {
+                          const myName = settings.userName.replace(/\s*\(You\)$/i, '').trim();
+                          const isHost = group.hostId === 'mem-1';
+                          const isCreator = !item.createdBy || item.createdBy.toLowerCase() === myName.toLowerCase();
+                          return (isHost || isCreator) && (
+                            <button 
+                              className="btn btn-secondary btn-sm" 
+                              style={{ padding: '4px', minWidth: '24px', height: '24px' }}
+                              onClick={() => handleDeleteChecklist(item.id)}
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          );
+                        })()}
                       </div>
                     ))}
                   </div>

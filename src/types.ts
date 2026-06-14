@@ -58,6 +58,7 @@ export interface ChecklistItem {
   text: string;
   checked: boolean;
   assigneeName?: string;
+  createdBy?: string;
 }
 
 export interface ChatMessage {
@@ -70,7 +71,8 @@ export interface ChatMessage {
 
 export interface DestinationVote {
   city: string;
-  votes: string[]; // Member IDs
+  votes: string[]; // Member IDs/names
+  proposedBy?: string;
 }
 
 export interface Group {
