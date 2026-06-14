@@ -16,7 +16,9 @@ import {
   CheckCircle,
   TrendingUp,
   Edit2,
-  LogOut
+  LogOut,
+  Menu,
+  X
 } from 'lucide-react';
 import { AIService } from './services/ai';
 import Auth from './components/Auth';
@@ -182,6 +184,7 @@ export default function App() {
   const [loadingSafety, setLoadingSafety] = useState(false);
   const [activeItineraryDay, setActiveItineraryDay] = useState<number>(1);
   const [replanningDay, setReplanningDay] = useState<number | null>(null);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
   // Trip Form States
   const [source, setSource] = useState('');
@@ -1353,51 +1356,70 @@ export default function App() {
           <span className="brand-name">Trippy</span>
         </div>
 
-        <nav>
+        {/* Mobile menu toggle */}
+        <button 
+          className="mobile-menu-toggle"
+          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+          aria-label="Toggle Navigation Menu"
+        >
+          {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
+        </button>
+
+        <nav className={`sidebar-nav ${isMobileMenuOpen ? 'mobile-open' : ''}`}>
           <ul className="nav-links">
             <li 
               className={`nav-item ${activeTab === 'planner' ? 'active' : ''}`}
-              onClick={() => setActiveTab('planner')}
+              onClick={() => { setActiveTab('planner'); setIsMobileMenuOpen(false); }}
             >
               <MapPin size={18} />
               <span>Trip Planner</span>
             </li>
             <li 
               className={`nav-item ${activeTab === 'safety' ? 'active' : ''}`}
-              onClick={() => setActiveTab('safety')}
+              onClick={() => { setActiveTab('safety'); setIsMobileMenuOpen(false); }}
             >
               <Shield size={18} />
               <span>Safety Center</span>
             </li>
             <li 
               className={`nav-item ${activeTab === 'group' ? 'active' : ''}`}
-              onClick={() => setActiveTab('group')}
+              onClick={() => { setActiveTab('group'); setIsMobileMenuOpen(false); }}
             >
               <Users size={18} />
               <span>Group Hub</span>
             </li>
             <li 
               className={`nav-item ${activeTab === 'expenses' ? 'active' : ''}`}
-              onClick={() => setActiveTab('expenses')}
+              onClick={() => { setActiveTab('expenses'); setIsMobileMenuOpen(false); }}
             >
               <TrendingUp size={18} />
               <span>Expenses</span>
             </li>
             <li 
               className={`nav-item ${activeTab === 'chatbot' ? 'active' : ''}`}
-              onClick={() => setActiveTab('chatbot')}
+              onClick={() => { setActiveTab('chatbot'); setIsMobileMenuOpen(false); }}
             >
               <MessageSquare size={18} />
               <span>TripPilot AI</span>
             </li>
             <li 
               className={`nav-item ${activeTab === 'settings' ? 'active' : ''}`}
-              onClick={() => setActiveTab('settings')}
+              onClick={() => { setActiveTab('settings'); setIsMobileMenuOpen(false); }}
             >
               <SettingsIcon size={18} />
               <span>Settings</span>
             </li>
           </ul>
+
+          {/* Mobile Profile Preview Inside Menu Drawer */}
+          <div className="mobile-profile-drawer">
+            <div className="avatar">
+              {settings.userName.slice(0, 2).toUpperCase()}
+            </div>
+            <span className="user-name">
+              {settings.userName}
+            </span>
+          </div>
         </nav>
 
         <div className="sidebar-footer">
