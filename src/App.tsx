@@ -139,7 +139,33 @@ export default function App() {
       };
     }
     const saved = localStorage.getItem('trippy_group');
-    if (saved) return JSON.parse(saved);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.members) {
+          const savedSettings = localStorage.getItem('trippy_settings');
+          const cleanUserName = savedSettings ? JSON.parse(savedSettings).userName?.trim().toLowerCase() : 'dhruv';
+          
+          const mem1s = parsed.members.filter((m: any) => m.id === 'mem-1');
+          if (mem1s.length > 1) {
+            parsed.members = parsed.members.map((m: any) => {
+              const mClean = m.name.replace(/\s*\(You\)$/i, '').trim().toLowerCase();
+              if (m.id === 'mem-1' && mClean !== cleanUserName) {
+                let targetId = 'mem-' + Math.random().toString(36).substring(2, 6);
+                if (parsed.hostId && parsed.hostId !== 'mem-1') {
+                  targetId = parsed.hostId;
+                }
+                return { ...m, id: targetId };
+              }
+              return m;
+            });
+          }
+        }
+        return parsed;
+      } catch (err) {
+        console.error("Failed to parse and self-heal group from localStorage:", err);
+      }
+    }
     return {
       id: 'group-' + generateId(),
       name: 'My Trip Group 🚀',
@@ -251,6 +277,22 @@ export default function App() {
 
   // UPI Settlement Modal State
   const [settlementModal, setSettlementModal] = useState<{from: string, to: string, amount: number} | null>(null);
+
+  // Browser Notification State & Request Handler
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>(() => {
+    return typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'default';
+  });
+
+  const handleRequestNotificationPermission = () => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      Notification.requestPermission().then(permission => {
+        setNotificationPermission(permission);
+        if (permission === 'granted') {
+          alert("Notifications enabled successfully! 🔔");
+        }
+      });
+    }
+  };
 
   // Keep latest refs of group and expenses to avoid stale closures in EventSource SSE listener
   const latestGroupRef = useRef<Group>(group);
@@ -708,6 +750,22 @@ export default function App() {
           }
           case 'chat': {
             const chatMsg = update.data;
+            
+            // Trigger desktop notification if message is from someone else
+            const cleanSender = chatMsg.sender.replace(/\s*\(You\)$/i, '').trim();
+            const isMe = cleanSender.toLowerCase() === settings.userName.trim().toLowerCase() || chatMsg.sender.includes('(You)');
+            
+            if (!isMe && notificationPermission === 'granted') {
+              try {
+                new Notification(`New message from ${cleanSender} 💬`, {
+                  body: chatMsg.text,
+                  icon: logoImg
+                });
+              } catch (err) {
+                console.error("Failed to trigger push notification:", err);
+              }
+            }
+
             setGroup(prev => {
               if (prev.chatHistory.some(m => m.id === chatMsg.id)) return prev;
               
@@ -811,10 +869,30 @@ export default function App() {
                   const cleanLocName = settings.userName.trim().toLowerCase();
                   return cleanInc !== cleanLocName;
                 })
-                .map((m: any) => ({
-                  ...m,
-                  name: m.name.replace(/\s*\(You\)$/i, '').trim()
-                }));
+                .map((m: any) => {
+                  const cleanName = m.name.replace(/\s*\(You\)$/i, '').trim();
+                  
+                  // Check if this member is the admin/host (when we are not the admin)
+                  const isHost = prev.hostId && prev.hostId !== 'mem-1' && m.id === 'mem-1';
+                  let targetId = m.id;
+                  
+                  if (isHost) {
+                    targetId = prev.hostId!;
+                  } else if (m.id === 'mem-1') {
+                    // This is another device's local user, so it collided with our 'mem-1'.
+                    // Check if we already have this member by name in our list and reuse their ID.
+                    const existing = prev.members.find(
+                      ex => ex.name.replace(/\s*\(You\)$/i, '').trim().toLowerCase() === cleanName.toLowerCase()
+                    );
+                    targetId = existing ? existing.id : 'mem-' + Math.random().toString(36).substring(2, 6);
+                  }
+                  
+                  return {
+                    ...m,
+                    id: targetId,
+                    name: cleanName
+                  };
+                });
               
               const merged = [localUser, ...filteredIncoming];
               
@@ -854,6 +932,28 @@ export default function App() {
           }
           case 'expenses_sync': {
             const syncedExpenses = update.data;
+            
+            // Check for new expenses added by comparing with latest expenses ref
+            const currentExpenses = latestExpensesRef.current;
+            const newItems = syncedExpenses.filter((e: any) => !currentExpenses.some(old => old.id === e.id));
+            
+            if (newItems.length > 0) {
+              const newExp = newItems[0];
+              const cleanPaidBy = newExp.paidBy.replace(/\s*\(You\)$/i, '').trim();
+              const isMe = cleanPaidBy.toLowerCase() === settings.userName.trim().toLowerCase();
+              
+              if (!isMe && notificationPermission === 'granted') {
+                try {
+                  new Notification(`New Expense Added 💸`, {
+                    body: `${cleanPaidBy} added "${newExp.title}" - ₹${newExp.amount}`,
+                    icon: logoImg
+                  });
+                } catch (err) {
+                  console.error("Failed to trigger push notification for expense:", err);
+                }
+              }
+            }
+
             setExpenses(syncedExpenses);
             break;
           }
@@ -880,7 +980,7 @@ export default function App() {
     return () => {
       eventSource.close();
     };
-  }, [group.id, isGuest, currentUser?.id, settings.userName, settings.userUpi, broadcastGroupUpdate]);
+  }, [group.id, isGuest, currentUser?.id, settings.userName, settings.userUpi, broadcastGroupUpdate, notificationPermission]);
 
   // Scroll chats to bottom
   useEffect(() => {
@@ -2007,6 +2107,50 @@ export default function App() {
       {/* Main Panel Content */}
       <main className="main-content">
         
+        {/* Notification Permission Bar */}
+        {notificationPermission === 'default' && (
+          <div 
+            className="glass-panel" 
+            style={{ 
+              margin: '0 0 20px 0', 
+              padding: '12px 24px', 
+              display: 'flex', 
+              justifyContent: 'space-between', 
+              alignItems: 'center', 
+              background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.15), rgba(6, 182, 212, 0.15))',
+              border: '1px solid rgba(139, 92, 246, 0.3)',
+              borderRadius: '12px',
+              animation: 'slideUpFadeIn 0.5s ease-out'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <span style={{ fontSize: '20px' }}>🔔</span>
+              <div>
+                <strong style={{ fontSize: '13px', color: 'var(--text-primary)' }}>Enable Live Notifications</strong>
+                <p style={{ fontSize: '11px', color: 'var(--text-secondary)', margin: 0 }}>
+                  Get instant desktop alerts when group members text in chat or log new expenses.
+                </p>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button 
+                onClick={handleRequestNotificationPermission} 
+                className="btn btn-primary btn-sm"
+                style={{ padding: '6px 14px', fontSize: '12px' }}
+              >
+                Enable
+              </button>
+              <button 
+                onClick={() => setNotificationPermission('denied')} 
+                className="btn btn-secondary btn-sm"
+                style={{ padding: '6px 10px', fontSize: '12px', background: 'transparent', border: 'none' }}
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Universal Mini Header showing active trip context */}
         {activeTrip ? (
           <div className="glass-panel" style={{ padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
