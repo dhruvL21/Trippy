@@ -43,41 +43,7 @@ const fetchGroupFromDpaste = async (pasteId: string) => {
   }
 };
 
-// Default mock group for immediate interaction
-const DEFAULT_GROUP: Group = {
-  id: 'group-goa-2026',
-  name: 'Goa Gang 2026 🌴',
-  members: [
-    { id: 'mem-1', name: 'Dhruv (You)', upi: 'dhruv@upi' },
-    { id: 'mem-2', name: 'Aarav', upi: 'aarav@paytm' },
-    { id: 'mem-3', name: 'Ananya', upi: 'ananya@okaxis' },
-    { id: 'mem-4', name: 'Kabir', upi: 'kabir@ybl' }
-  ],
-  votes: [
-    { city: 'Goa', votes: ['mem-1', 'mem-2', 'mem-3'] },
-    { city: 'Jaipur', votes: ['mem-4'] },
-    { city: 'Manali', votes: ['mem-1', 'mem-4'] }
-  ],
-  checklist: [
-    { id: 'chk-1', text: 'Book beach villas', checked: true, assigneeName: 'Dhruv (You)' },
-    { id: 'chk-2', text: 'Rent rental scooters', checked: false, assigneeName: 'Aarav' },
-    { id: 'chk-3', text: 'Order physical maps and sunscreen', checked: false, assigneeName: 'Ananya' },
-    { id: 'chk-4', text: 'Pack heavy powerbanks & first-aid', checked: true, assigneeName: 'Kabir' },
-    { id: 'chk-5', text: 'Book return flight tickets', checked: false, assigneeName: 'Dhruv (You)' }
-  ],
-  chatHistory: [
-    { id: 'msg-1', sender: 'Aarav', text: 'Yo guys! Excited for Goa! Have we locked down the budget?', timestamp: '10:30 AM' },
-    { id: 'msg-2', sender: 'Ananya', text: 'Yes, keeping it around ₹30k each. Did we confirm dates?', timestamp: '10:32 AM' },
-    { id: 'msg-3', sender: 'Kabir', text: 'Yeah, May 25 to 28 looks clean. Let\'s make sure we keep tracking expenses.', timestamp: '10:35 AM' }
-  ]
-};
 
-// Default mock expenses
-const DEFAULT_EXPENSES: Expense[] = [
-  { id: 'exp-1', title: 'Villa Booking Deposit', amount: 8000, paidBy: 'Dhruv (You)', splitWith: ['Dhruv (You)', 'Aarav', 'Ananya', 'Kabir'], category: 'accommodation', date: '2026-05-24' },
-  { id: 'exp-2', title: 'Dinner at Britto\'s Shack', amount: 2800, paidBy: 'Ananya', splitWith: ['Dhruv (You)', 'Aarav', 'Ananya', 'Kabir'], category: 'food', date: '2026-05-25' },
-  { id: 'exp-3', title: 'Scooter Fuel charges', amount: 800, paidBy: 'Aarav', splitWith: ['Dhruv (You)', 'Aarav'], category: 'transport', date: '2026-05-25' }
-];
 
 const DEFAULT_SETTINGS: AppSettings = {
   openaiApiKey: (import.meta.env.VITE_OPENAI_API_KEY as string) || '',
@@ -284,6 +250,18 @@ export default function App() {
   // UPI Settlement Modal State
   const [settlementModal, setSettlementModal] = useState<{from: string, to: string, amount: number} | null>(null);
 
+  // Keep latest refs of group and expenses to avoid stale closures in EventSource SSE listener
+  const latestGroupRef = useRef<Group>(group);
+  const latestExpensesRef = useRef<Expense[]>(expenses);
+
+  useEffect(() => {
+    latestGroupRef.current = group;
+  }, [group]);
+
+  useEffect(() => {
+    latestExpensesRef.current = expenses;
+  }, [expenses]);
+
   // Refs
   const chatEndRef = useRef<HTMLDivElement>(null);
   const groupChatEndRef = useRef<HTMLDivElement>(null);
@@ -393,9 +371,10 @@ export default function App() {
     localStorage.setItem('trippy_is_guest', String(isGuest));
   }, [isGuest]);
 
-  const broadcastGroupUpdate = useCallback((type: string, data: any) => {
-    if (!group || !group.id || isGuest) return;
-    const cleanTopic = `trippy-${group.id.replace(/[^a-zA-Z0-9-_]/g, '')}`;
+  const broadcastGroupUpdate = useCallback((type: string, data: any, targetGroupId?: string) => {
+    const activeGroupId = targetGroupId || latestGroupRef.current?.id;
+    if (!activeGroupId || isGuest) return;
+    const cleanTopic = `trippy-${activeGroupId.replace(/[^a-zA-Z0-9-_]/g, '')}`;
     fetch(`https://ntfy.sh/${cleanTopic}`, {
       method: 'POST',
       body: JSON.stringify({
@@ -405,7 +384,7 @@ export default function App() {
         senderName: settings.userName
       })
     }).catch(err => console.error("Failed to broadcast group update:", err));
-  }, [group.id, isGuest, currentUser?.id, settings.userName]);
+  }, [isGuest, currentUser?.id, settings.userName]);
 
   // Helper to join a shared group and map sender/receiver identities
   const performJoinGroup = useCallback((decoded: { activeTrip?: Trip | null; group?: Group; expenses?: Expense[] }) => {
@@ -433,10 +412,15 @@ export default function App() {
         
         // Filter out any members that match current user's name to avoid duplicates
         const cleanUserName = settings.userName.trim();
-        newMembers = originalMembers.filter(m => {
-          const mClean = m.name.replace(/\s*\(You\)$/i, '').trim();
-          return m.id !== 'mem-1' && mClean.toLowerCase() !== cleanUserName.toLowerCase();
-        });
+        newMembers = originalMembers
+          .filter(m => {
+            const mClean = m.name.replace(/\s*\(You\)$/i, '').trim();
+            return m.id !== 'mem-1' && mClean.toLowerCase() !== cleanUserName.toLowerCase();
+          })
+          .map(m => ({
+            ...m,
+            name: m.name.replace(/\s*\(You\)$/i, '').trim()
+          }));
         
         // Add sender back as a normal member
         newMembers.push({
@@ -501,7 +485,12 @@ export default function App() {
           });
         }
       } else {
-        newMembers = originalMembers.filter(m => m.id !== 'mem-1');
+        newMembers = originalMembers
+          .filter(m => m.id !== 'mem-1')
+          .map(m => ({
+            ...m,
+            name: m.name.replace(/\s*\(You\)$/i, '').trim()
+          }));
         newMembers.unshift({
           id: 'mem-1',
           name: receiverName,
@@ -540,8 +529,8 @@ export default function App() {
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
     setTimeout(() => {
-      broadcastGroupUpdate('member_join', myMemberObj);
-      broadcastGroupUpdate('chat', joinMsg);
+      broadcastGroupUpdate('member_join', myMemberObj, decoded.group?.id);
+      broadcastGroupUpdate('chat', joinMsg, decoded.group?.id);
     }, 500);
   }, [settings.userName, settings.userUpi, settings.openaiApiKey, settings.model, isGuest, broadcastGroupUpdate, currentUser]);
 
@@ -678,6 +667,21 @@ export default function App() {
     const cleanTopic = `trippy-${group.id.replace(/[^a-zA-Z0-9-_]/g, '')}`;
     const eventSource = new EventSource(`https://ntfy.sh/${cleanTopic}/sse`);
     
+    eventSource.onopen = () => {
+      // Prompt other active peers to send us the current state
+      setTimeout(() => {
+        const localSenderId = currentUser?.id || 'mem-1';
+        fetch(`https://ntfy.sh/${cleanTopic}`, {
+          method: 'POST',
+          body: JSON.stringify({
+            type: 'request_sync',
+            senderId: localSenderId,
+            senderName: settings.userName
+          })
+        }).catch(err => console.error("Failed to send request_sync on EventSource open:", err));
+      }, 500);
+    };
+
     eventSource.onmessage = (event) => {
       try {
         const ntfyData = JSON.parse(event.data);
@@ -690,6 +694,20 @@ export default function App() {
         if (update.senderId === localSenderId) return;
         
         switch (update.type) {
+          case 'request_sync': {
+            if (update.senderId !== localSenderId) {
+              const currentGroup = latestGroupRef.current;
+              const currentExpenses = latestExpensesRef.current;
+              
+              // Broadcast current states back to the new participant
+              broadcastGroupUpdate('members_sync', currentGroup.members);
+              broadcastGroupUpdate('checklist_sync', currentGroup.checklist);
+              broadcastGroupUpdate('expenses_sync', currentExpenses);
+              broadcastGroupUpdate('votes_sync', currentGroup.votes);
+              broadcastGroupUpdate('group_name_update', currentGroup.name);
+            }
+            break;
+          }
           case 'chat': {
             const chatMsg = update.data;
             setGroup(prev => {
@@ -719,9 +737,15 @@ export default function App() {
             setGroup(prev => {
               const exists = prev.members.some(m => m.name.replace(/\s*\(You\)$/i, '').trim().toLowerCase() === newMember.name.trim().toLowerCase());
               if (exists) return prev;
+              
+              const cleanedNewMember = {
+                ...newMember,
+                name: newMember.name.replace(/\s*\(You\)$/i, '').trim()
+              };
+              
               return {
                 ...prev,
-                members: [...prev.members, newMember]
+                members: [...prev.members, cleanedNewMember]
               };
             });
             break;
@@ -732,11 +756,16 @@ export default function App() {
               // Merge members: keep local user (mem-1) name, but update other members
               const localUser = prev.members.find(m => m.id === 'mem-1') || { id: 'mem-1', name: `${settings.userName} (You)`, upi: settings.userUpi };
               
-              const filteredIncoming = syncedMembers.filter((m: any) => {
-                const cleanInc = m.name.replace(/\s*\(You\)$/i, '').trim().toLowerCase();
-                const cleanLoc = settings.userName.trim().toLowerCase();
-                return cleanInc !== cleanLoc;
-              });
+              const filteredIncoming = syncedMembers
+                .filter((m: any) => {
+                  const cleanInc = m.name.replace(/\s*\(You\)$/i, '').trim().toLowerCase();
+                  const cleanLoc = settings.userName.trim().toLowerCase();
+                  return cleanInc !== cleanLoc;
+                })
+                .map((m: any) => ({
+                  ...m,
+                  name: m.name.replace(/\s*\(You\)$/i, '').trim()
+                }));
               
               const merged = [localUser, ...filteredIncoming];
               
@@ -802,7 +831,7 @@ export default function App() {
     return () => {
       eventSource.close();
     };
-  }, [group.id, isGuest, currentUser?.id, settings.userName, settings.userUpi]);
+  }, [group.id, isGuest, currentUser?.id, settings.userName, settings.userUpi, broadcastGroupUpdate]);
 
   // Scroll chats to bottom
   useEffect(() => {
@@ -1363,23 +1392,76 @@ export default function App() {
   };
 
   const handleClearAllRecords = () => {
-    if (confirm("Are you sure you want to completely reset the application? This will delete all saved itineraries, expenses, active trip, custom settings, and groups. This action CANNOT be undone.")) {
-      localStorage.clear();
-      
-      setCurrentUser(null);
-      setIsGuest(false);
+    if (confirm("Are you sure you want to completely clear all travel records? This will delete all saved itineraries, expenses, active trip, custom settings, and groups, but keep your login session. This action CANNOT be undone.")) {
+      // Wiping selectively from local storage
+      localStorage.removeItem('trippy_active_trip');
+      localStorage.removeItem('trippy_group');
+      localStorage.removeItem('trippy_expenses');
+      localStorage.removeItem('trippy_safety_report');
+      localStorage.removeItem('trippy_chatbot_msgs');
+      localStorage.removeItem('trippy_saved_trips');
+      localStorage.removeItem('trippy_settings');
+
+      // Keep currentUser and isGuest intact
       setActiveTab('planner');
-      setSettings(DEFAULT_SETTINGS);
-      setTempUserName(DEFAULT_SETTINGS.userName);
-      setTempUserUpi(DEFAULT_SETTINGS.userUpi);
-      setTempPersonalInfo(DEFAULT_SETTINGS.personalInfo);
-      setTempPhone(DEFAULT_SETTINGS.phone);
-      setTempEmail(DEFAULT_SETTINGS.email);
-      setTempEmergencyContact(DEFAULT_SETTINGS.emergencyContact);
+      
+      // Keep username & email from currentUser if logged in, otherwise default settings
+      const clearedSettings: AppSettings = {
+        ...DEFAULT_SETTINGS,
+        userName: currentUser ? currentUser.name : DEFAULT_SETTINGS.userName,
+        email: currentUser ? currentUser.email || '' : DEFAULT_SETTINGS.email
+      };
+      setSettings(clearedSettings);
+      setTempUserName(clearedSettings.userName);
+      setTempUserUpi(clearedSettings.userUpi);
+      setTempPersonalInfo(clearedSettings.personalInfo);
+      setTempPhone(clearedSettings.phone);
+      setTempEmail(clearedSettings.email);
+      setTempEmergencyContact(clearedSettings.emergencyContact);
+
       setActiveTrip(null);
       setSafetyReport(null);
-      setGroup(DEFAULT_GROUP);
-      setExpenses(DEFAULT_EXPENSES);
+      
+      // Clean group depending on guest or registered user
+      if (isGuest) {
+        setGroup({
+          id: 'group-' + generateId(),
+          name: 'My Guest Group 🚀',
+          members: [{ id: 'mem-1', name: 'Guest (You)', upi: '' }],
+          votes: [],
+          checklist: [],
+          chatHistory: [
+            {
+              id: 'welcome-' + generateId(),
+              sender: 'System',
+              text: `Welcome to your guest session group! 👥\n\n(Please register to connect and sync with other travelers)`,
+              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            }
+          ]
+        });
+        setExpenses([]);
+      } else {
+        const freshGroup: Group = {
+          id: 'group-' + generateId(),
+          name: currentUser ? `${currentUser.name}'s Trip Group 🚀` : 'My Trip Group 🚀',
+          members: [
+            { id: 'mem-1', name: currentUser ? `${currentUser.name} (You)` : 'Dhruv (You)', upi: '' }
+          ],
+          votes: [],
+          checklist: [],
+          chatHistory: [
+            {
+              id: 'welcome-' + generateId(),
+              sender: 'System',
+              text: `Welcome to your fresh group! 👥\n\nInvite your friends by generating an invite code above. When they enter the code in their Group Hub, they will join this group!`,
+              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            }
+          ]
+        };
+        setGroup(freshGroup);
+        setExpenses([]);
+      }
+      
       setSavedTrips([]);
       setChatbotMessages([
         {
@@ -1391,9 +1473,8 @@ export default function App() {
         }
       ]);
       setInviteLinkInput('');
-      setShowLanding(true);
       
-      alert("Application has been successfully reset to factory defaults! 🗑️");
+      alert("All travel records have been cleared successfully! 🗑️");
     }
   };
 
