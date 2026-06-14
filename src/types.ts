@@ -124,3 +124,11 @@ export interface AppSettings {
   email: string;
   emergencyContact: string;
 }
+
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  avatarUrl?: string;
+  authProvider: 'email' | 'google' | 'apple';
+}

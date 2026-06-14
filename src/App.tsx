@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
+/* eslint-disable react-hooks/set-state-in-effect */
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   MapPin, 
   Users, 
@@ -14,11 +15,14 @@ import {
   Send, 
   CheckCircle,
   TrendingUp,
-  Edit2
+  Edit2,
+  LogOut
 } from 'lucide-react';
 import { AIService } from './services/ai';
-import type { Trip, Group, Member, ChecklistItem, ChatMessage, Expense, SafetyReport, AppSettings } from './types';
+import Auth from './components/Auth';
+import type { Trip, Group, Member, ChecklistItem, ChatMessage, Expense, SafetyReport, AppSettings, User } from './types';
 import './App.css';
+import logoImg from './assets/logo.png';
 
 const generateId = () => Math.random().toString(36).substring(2, 9);
 
@@ -83,8 +87,17 @@ const INTERESTS_LIST = [
 
 export default function App() {
   // --- Persistent States ---
+  const [currentUser, setCurrentUser] = useState<User | null>(() => {
+    const saved = localStorage.getItem('trippy_user');
+    return saved ? JSON.parse(saved) : null;
+  });
+
+  const [isGuest, setIsGuest] = useState<boolean>(() => {
+    return localStorage.getItem('trippy_is_guest') === 'true';
+  });
+
   const [activeTab, setActiveTab] = useState<'planner' | 'safety' | 'group' | 'expenses' | 'chatbot' | 'settings'>(() => {
-    return (localStorage.getItem('trippy_active_tab') as any) || 'planner';
+    return (localStorage.getItem('trippy_active_tab') as 'planner' | 'safety' | 'group' | 'expenses' | 'chatbot' | 'settings') || 'planner';
   });
 
   const [settings, setSettings] = useState<AppSettings>(() => {
@@ -120,12 +133,29 @@ export default function App() {
 
   const [group, setGroup] = useState<Group>(() => {
     const saved = localStorage.getItem('trippy_group');
-    return saved ? JSON.parse(saved) : DEFAULT_GROUP;
+    if (saved) return JSON.parse(saved);
+    return {
+      id: 'group-' + generateId(),
+      name: 'My Trip Group 🚀',
+      members: [
+        { id: 'mem-1', name: 'Dhruv (You)', upi: 'dhruv@upi' }
+      ],
+      votes: [],
+      checklist: [],
+      chatHistory: [
+        {
+          id: 'welcome-' + generateId(),
+          sender: 'System',
+          text: `Welcome to your fresh group! 👥\n\nInvite your friends by copying the invite link above and sharing it with them. When they open/paste it, they will join this group!`,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        }
+      ]
+    };
   });
 
   const [expenses, setExpenses] = useState<Expense[]>(() => {
     const saved = localStorage.getItem('trippy_expenses');
-    return saved ? JSON.parse(saved) : DEFAULT_EXPENSES;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [savedTrips, setSavedTrips] = useState<Trip[]>(() => {
@@ -154,12 +184,12 @@ export default function App() {
   const [replanningDay, setReplanningDay] = useState<number | null>(null);
   
   // Trip Form States
-  const [source, setSource] = useState('Delhi');
-  const [destination, setDestination] = useState('Goa');
-  const [startDate, setStartDate] = useState('2026-05-25');
-  const [endDate, setEndDate] = useState('2026-05-28');
-  const [travelers, setTravelers] = useState(2);
-  const [budgetLimit, setBudgetLimit] = useState(30000);
+  const [source, setSource] = useState('');
+  const [destination, setDestination] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [travelers, setTravelers] = useState<number | ''>('');
+  const [budgetLimit, setBudgetLimit] = useState<number | ''>('');
   const [tripType, setTripType] = useState('Leisure');
   const [accommodationPreference, setAccommodationPreference] = useState('Standard');
   const [transportPreference, setTransportPreference] = useState('train');
@@ -184,6 +214,7 @@ export default function App() {
   const [newChecklistAssignee, setNewChecklistAssignee] = useState('Dhruv (You)');
   const [newVoteCity, setNewVoteCity] = useState('');
   const [chatInput, setChatInput] = useState('');
+  const [inviteLinkInput, setInviteLinkInput] = useState('');
 
   // Expense Form States
   const [expenseTitle, setExpenseTitle] = useState('');
@@ -236,6 +267,168 @@ export default function App() {
     localStorage.setItem('trippy_saved_trips', JSON.stringify(savedTrips));
   }, [savedTrips]);
 
+  useEffect(() => {
+    if (currentUser) {
+      localStorage.setItem('trippy_user', JSON.stringify(currentUser));
+    } else {
+      localStorage.removeItem('trippy_user');
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
+    localStorage.setItem('trippy_is_guest', String(isGuest));
+  }, [isGuest]);
+
+  // Helper to join a shared group and map sender/receiver identities
+  const performJoinGroup = useCallback((decoded: { activeTrip?: Trip | null; group?: Group; expenses?: Expense[] }) => {
+    if (!decoded) return;
+    
+    // 1. Process active trip
+    if (decoded.activeTrip) {
+      setActiveTrip(decoded.activeTrip);
+      localStorage.setItem('trippy_active_trip', JSON.stringify(decoded.activeTrip));
+    }
+    
+    // 2. Process group and re-map member identities
+    if (decoded.group) {
+      const originalMembers = decoded.group.members || [];
+      const senderInDecoded = originalMembers.find(m => m.id === 'mem-1');
+      
+      const receiverName = `${settings.userName} (You)`;
+      const receiverUpi = settings.userUpi;
+      
+      let newMembers: Member[];
+      const newSenderId = 'mem-sender-' + Math.random().toString(36).substring(2, 6);
+      
+      if (senderInDecoded) {
+        const senderCleanName = senderInDecoded.name.replace(/\s*\(You\)$/i, '');
+        
+        // Filter out any members that match current user's name to avoid duplicates
+        const cleanUserName = settings.userName.trim();
+        newMembers = originalMembers.filter(m => {
+          const mClean = m.name.replace(/\s*\(You\)$/i, '').trim();
+          return m.id !== 'mem-1' && mClean.toLowerCase() !== cleanUserName.toLowerCase();
+        });
+        
+        // Add sender back as a normal member
+        newMembers.push({
+          id: newSenderId,
+          name: senderCleanName,
+          upi: senderInDecoded.upi
+        });
+        
+        // Add receiver as 'mem-1'
+        newMembers.unshift({
+          id: 'mem-1',
+          name: receiverName,
+          upi: receiverUpi
+        });
+        
+        // Update destination votes to map sender's old 'mem-1' to newSenderId
+        if (decoded.group.votes) {
+          decoded.group.votes = decoded.group.votes.map(v => ({
+            ...v,
+            votes: v.votes.map((id: string) => id === 'mem-1' ? newSenderId : id)
+          }));
+        }
+        
+        // Update checklist assignees
+        if (decoded.group.checklist) {
+          const senderOldLabel = senderInDecoded.name;
+          const senderNewLabel = senderCleanName;
+          
+          decoded.group.checklist = decoded.group.checklist.map(item => {
+            let newAssignee = item.assigneeName;
+            if (item.assigneeName === senderOldLabel) {
+              newAssignee = senderNewLabel;
+            } else if (item.assigneeName?.replace(/\s*\(You\)$/i, '').trim().toLowerCase() === settings.userName.toLowerCase()) {
+              newAssignee = receiverName;
+            }
+            return { ...item, assigneeName: newAssignee };
+          });
+        }
+        
+        // Update expenses
+        if (decoded.expenses) {
+          const senderOldLabel = senderInDecoded.name;
+          const senderNewLabel = senderCleanName;
+          const receiverCleanName = settings.userName;
+          const receiverLabel = receiverName;
+          
+          decoded.expenses = decoded.expenses.map(exp => {
+            let newPaidBy = exp.paidBy;
+            if (exp.paidBy === senderOldLabel) {
+              newPaidBy = senderNewLabel;
+            } else if (exp.paidBy === receiverCleanName) {
+              newPaidBy = receiverLabel;
+            }
+            
+            const newSplitWith = exp.splitWith.map((name: string) => {
+              if (name === senderOldLabel) return senderNewLabel;
+              if (name === receiverCleanName) return receiverLabel;
+              return name;
+            });
+            
+            return { ...exp, paidBy: newPaidBy, splitWith: newSplitWith };
+          });
+        }
+      } else {
+        newMembers = originalMembers.filter(m => m.id !== 'mem-1');
+        newMembers.unshift({
+          id: 'mem-1',
+          name: receiverName,
+          upi: receiverUpi
+        });
+      }
+      
+      decoded.group.members = newMembers;
+      setGroup(decoded.group);
+      localStorage.setItem('trippy_group', JSON.stringify(decoded.group));
+    }
+    
+    // 3. Process expenses
+    if (decoded.expenses) {
+      setExpenses(decoded.expenses);
+      localStorage.setItem('trippy_expenses', JSON.stringify(decoded.expenses));
+    }
+    
+    // 4. Safety report loading
+    if (decoded.activeTrip) {
+      AIService.generateSafetyReport(decoded.activeTrip.destination, settings.openaiApiKey, settings.model)
+        .then(report => setSafetyReport(report))
+        .catch(err => console.error('Failed to load safety report for shared trip', err));
+    }
+  }, [settings.userName, settings.userUpi, settings.openaiApiKey, settings.model]);
+
+  // Handler to parse and connect group via invite link paste field
+  const handleConnectInviteLink = (linkOrCode: string) => {
+    if (!linkOrCode.trim()) return;
+    try {
+      let base64Data = linkOrCode.trim();
+      
+      // Extract from URL if fully pasted
+      if (base64Data.includes('join=')) {
+        const parts = base64Data.split('join=');
+        base64Data = parts[1].split('&')[0];
+      } else if (base64Data.includes('?')) {
+        const params = new URLSearchParams(base64Data.substring(base64Data.indexOf('?')));
+        const joinVal = params.get('join');
+        if (joinVal) {
+          base64Data = joinVal;
+        }
+      }
+      
+      const decoded = JSON.parse(decodeURIComponent(atob(base64Data)));
+      performJoinGroup(decoded);
+      
+      setInviteLinkInput('');
+      alert(`Successfully joined group trip "${decoded.group?.name || 'Vacation'}"! 👥✈️`);
+    } catch (err) {
+      console.error("Failed to decode group from pasted invite link:", err);
+      alert("Invalid invite link or code. Please check and try again.");
+    }
+  };
+
   // Check for shared trip or group invite query param on mount
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -262,25 +455,7 @@ export default function App() {
     } else if (joinParam) {
       try {
         const decoded = JSON.parse(decodeURIComponent(atob(joinParam)));
-        if (decoded.activeTrip) {
-          setActiveTrip(decoded.activeTrip);
-          localStorage.setItem('trippy_active_trip', JSON.stringify(decoded.activeTrip));
-        }
-        if (decoded.group) {
-          setGroup(decoded.group);
-          localStorage.setItem('trippy_group', JSON.stringify(decoded.group));
-        }
-        if (decoded.expenses) {
-          setExpenses(decoded.expenses);
-          localStorage.setItem('trippy_expenses', JSON.stringify(decoded.expenses));
-        }
-        
-        // Load related safety report
-        if (decoded.activeTrip) {
-          AIService.generateSafetyReport(decoded.activeTrip.destination, settings.openaiApiKey, settings.model)
-            .then(report => setSafetyReport(report))
-            .catch(err => console.error('Failed to load safety report for shared trip', err));
-        }
+        performJoinGroup(decoded);
         
         // Clean query parameter from URL
         window.history.replaceState({}, document.title, window.location.pathname);
@@ -289,7 +464,7 @@ export default function App() {
         console.error("Failed to decode shared group from URL:", err);
       }
     }
-  }, [settings.model, settings.openaiApiKey]);
+  }, [settings.model, settings.openaiApiKey, performJoinGroup]);
 
   // Scroll chats to bottom
   useEffect(() => {
@@ -308,7 +483,7 @@ export default function App() {
         setExpensePaidBy(group.members[0].name);
       }
     }
-  }, [group.members]);
+  }, [group.members, expensePaidBy]);
 
   // --- Handlers ---
   const handleSaveTrip = () => {
@@ -390,6 +565,108 @@ export default function App() {
     }
   };
 
+  const handleAuthSuccess = (user: User) => {
+    setCurrentUser(user);
+    setIsGuest(false);
+    setActiveTab('planner');
+    
+    // Auto-update settings with user info
+    setSettings(prev => {
+      const updated = {
+        ...prev,
+        userName: user.name,
+        email: user.email
+      };
+      return updated;
+    });
+
+    // Keep temp states in sync
+    setTempUserName(user.name);
+    setTempEmail(user.email);
+
+    // Sync member list (Dhruv -> user name) in active group
+    setGroup(prev => {
+      const updatedMembers = prev.members.map(m => 
+        m.id === 'mem-1' ? { ...m, name: `${user.name} (You)` } : m
+      );
+      const updatedChecklist = prev.checklist.map(c => 
+        c.assigneeName?.includes('(You)') ? { ...c, assigneeName: `${user.name} (You)` } : c
+      );
+      return {
+        ...prev,
+        members: updatedMembers,
+        checklist: updatedChecklist
+      };
+    });
+
+    alert(`Successfully signed in as ${user.name}! ✈️`);
+  };
+
+  const handleLogout = () => {
+    if (confirm('Are you sure you want to log out?')) {
+      setCurrentUser(null);
+      setIsGuest(false);
+      
+      // Remove all user-related data from local storage
+      localStorage.removeItem('trippy_user');
+      localStorage.removeItem('trippy_is_guest');
+      localStorage.removeItem('trippy_active_trip');
+      localStorage.removeItem('trippy_group');
+      localStorage.removeItem('trippy_expenses');
+      localStorage.removeItem('trippy_safety_report');
+      localStorage.removeItem('trippy_chatbot_msgs');
+      localStorage.removeItem('trippy_saved_trips');
+      localStorage.removeItem('trippy_settings');
+      
+      // Reset settings
+      setSettings(DEFAULT_SETTINGS);
+      setTempUserName(DEFAULT_SETTINGS.userName);
+      setTempUserUpi(DEFAULT_SETTINGS.userUpi);
+      setTempPersonalInfo(DEFAULT_SETTINGS.personalInfo);
+      setTempPhone(DEFAULT_SETTINGS.phone);
+      setTempEmail(DEFAULT_SETTINGS.email);
+      setTempEmergencyContact(DEFAULT_SETTINGS.emergencyContact);
+      
+      // Reset active trip, saved trips, and safety reports
+      setActiveTrip(null);
+      setSafetyReport(null);
+      setSavedTrips([]);
+      setInviteLinkInput('');
+      
+      // Reset group to fresh empty state
+      const freshGroup: Group = {
+        id: 'group-' + generateId(),
+        name: 'My Trip Group 🚀',
+        members: [
+          { id: 'mem-1', name: 'Dhruv (You)', upi: 'dhruv@upi' }
+        ],
+        votes: [],
+        checklist: [],
+        chatHistory: [
+          {
+            id: 'welcome-' + generateId(),
+            sender: 'System',
+            text: `Welcome to your fresh group! 👥\n\nInvite your friends by copying the invite link above and sharing it with them. When they open/paste it, they will join this group!`,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          }
+        ]
+      };
+      setGroup(freshGroup);
+      setExpenses([]);
+      setChatbotMessages([
+        {
+          id: 'welcome',
+          sender: 'TripPilot',
+          text: `Hi there! I am your AI Travel Companion. 🗺️\n\nGenerate a trip in the **Trip Planner** tab, and I will instantly know the details to help you out!\n\nFeel free to ask me questions like:\n* *"Is UPI accepted widely in Goa?"*\n* *"What is the temple dress code in Jaipur?"*\n* *"How can I cut costs on transport?"*`,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          isAI: true
+        }
+      ]);
+
+      alert('Logged out successfully.');
+    }
+  };
+
   const toggleInterest = (id: string) => {
     setSelectedInterests(prev => 
       prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
@@ -409,8 +686,8 @@ export default function App() {
         destination,
         startDate,
         endDate,
-        travelers,
-        budgetLimit,
+        travelers: Number(travelers) || 1,
+        budgetLimit: Number(budgetLimit) || 1000,
         interests: interestsLabels,
         tripType,
         accommodationPreference,
@@ -438,7 +715,7 @@ export default function App() {
       // Sync members to include in active group
       const updatedGroupMembers = [
         { id: 'mem-1', name: `${settings.userName} (You)`, upi: settings.userUpi },
-        ...Array.from({ length: Math.max(0, travelers - 1) }).map((_, i) => ({
+        ...Array.from({ length: Math.max(0, Number(travelers) - 1) }).map((_, i) => ({
           id: `mem-gen-${i}`,
           name: `Traveler ${i + 2}`,
           upi: `traveler${i + 2}@upi`
@@ -488,8 +765,8 @@ export default function App() {
       }
       setExpenses(initialExpenses);
 
-    } catch (err: any) {
-      alert(err.message || 'Failed to generate travel plan.');
+    } catch (err) {
+      alert((err as Error).message || 'Failed to generate travel plan.');
     } finally {
       setLoadingTrip(false);
       setLoadingSafety(false);
@@ -559,8 +836,8 @@ export default function App() {
         isAI: true
       };
       setChatbotMessages(prev => [...prev, botNotice]);
-    } catch (err: any) {
-      alert(err.message || 'Replanning failed.');
+    } catch (err) {
+      alert((err as Error).message || 'Replanning failed.');
     } finally {
       setReplanningDay(null);
     }
@@ -699,6 +976,67 @@ export default function App() {
       ...prev,
       checklist: prev.checklist.filter(c => c.id !== id)
     }));
+  };
+
+  const handleClearAllRecords = () => {
+    if (confirm("Are you sure you want to completely reset the application? This will delete all saved itineraries, expenses, active trip, custom settings, and groups. This action CANNOT be undone.")) {
+      localStorage.clear();
+      
+      setCurrentUser(null);
+      setIsGuest(false);
+      setActiveTab('planner');
+      setSettings(DEFAULT_SETTINGS);
+      setTempUserName(DEFAULT_SETTINGS.userName);
+      setTempUserUpi(DEFAULT_SETTINGS.userUpi);
+      setTempPersonalInfo(DEFAULT_SETTINGS.personalInfo);
+      setTempPhone(DEFAULT_SETTINGS.phone);
+      setTempEmail(DEFAULT_SETTINGS.email);
+      setTempEmergencyContact(DEFAULT_SETTINGS.emergencyContact);
+      setActiveTrip(null);
+      setSafetyReport(null);
+      setGroup(DEFAULT_GROUP);
+      setExpenses(DEFAULT_EXPENSES);
+      setSavedTrips([]);
+      setChatbotMessages([
+        {
+          id: 'welcome',
+          sender: 'TripPilot',
+          text: `Hi there! I am your AI Travel Companion. 🗺️\n\nGenerate a trip in the **Trip Planner** tab, and I will instantly know the details to help you out!\n\nFeel free to ask me questions like:\n* *"Is UPI accepted widely in Goa?"*\n* *"What is the temple dress code in Jaipur?"*\n* *"How can I cut costs on transport?"*`,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          isAI: true
+        }
+      ]);
+      setInviteLinkInput('');
+      
+      alert("Application has been successfully reset to factory defaults! 🗑️");
+    }
+  };
+
+  const handleCreateIsolatedGroup = () => {
+    if (confirm("Are you sure you want to create a fresh isolated group? This will clear the current group members, chat, voting, and expenses, starting a new group with only you.")) {
+      const newGroup: Group = {
+        id: 'group-' + generateId(),
+        name: `${settings.userName}'s Trip Group 🚀`,
+        members: [
+          { id: 'mem-1', name: `${settings.userName} (You)`, upi: settings.userUpi }
+        ],
+        votes: [],
+        checklist: [],
+        chatHistory: [
+          {
+            id: 'welcome-' + generateId(),
+            sender: 'System',
+            text: `Welcome to your fresh group! 👥\n\nInvite your friends by copying the invite link above and sharing it with them. When they open/paste it, they will join this group!`,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          }
+        ]
+      };
+      setGroup(newGroup);
+      setExpenses([]);
+      localStorage.setItem('trippy_group', JSON.stringify(newGroup));
+      localStorage.setItem('trippy_expenses', JSON.stringify([]));
+      alert("Fresh isolated group created successfully! Share the invite link with your friends to connect them.");
+    }
   };
 
   const handleSendGroupChat = (e: React.FormEvent) => {
@@ -925,11 +1263,11 @@ export default function App() {
       };
 
       setChatbotMessages(prev => [...prev, aiMsg]);
-    } catch (err: any) {
+    } catch (err) {
       const errorMsg: ChatMessage = {
         id: generateId(),
         sender: 'TripPilot',
-        text: `❌ Failed to get response: ${err.message || 'Check your internet connection or OpenAI key.'}`,
+        text: `❌ Failed to get response: ${(err as Error).message || 'Check your internet connection or OpenAI key.'}`,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         isAI: true
       };
@@ -983,13 +1321,36 @@ export default function App() {
     });
   };
 
+  if (!currentUser && !isGuest) {
+    return (
+      <Auth 
+        onAuthSuccess={handleAuthSuccess} 
+        onSkip={() => {
+          setIsGuest(true);
+          setActiveTab('planner');
+        }} 
+      />
+    );
+  }
+
   return (
     <div className="dashboard-container">
       {/* Sidebar navigation */}
       <aside className="sidebar">
-        <div className="brand-section">
-          <div className="brand-logo">T</div>
-          <div className="brand-name">Trippy</div>
+        <div 
+          className="brand-section" 
+          onClick={() => window.location.reload()}
+          style={{ cursor: 'pointer' }}
+          title="Reload Page"
+        >
+          <div className="brand-logo" style={{ background: 'transparent', boxShadow: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <img 
+              src={logoImg} 
+              alt="Trippy Logo" 
+              style={{ width: '100%', height: '100%', objectFit: 'contain' }} 
+            />
+          </div>
+          <span className="brand-name">Trippy</span>
         </div>
 
         <nav>
@@ -1040,14 +1401,13 @@ export default function App() {
         </nav>
 
         <div className="sidebar-footer">
-          <div className="user-profile-preview">
+          <div className="user-profile-preview" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <div className="avatar">
               {settings.userName.slice(0, 2).toUpperCase()}
             </div>
-            <div className="user-info">
-              <span className="user-name">{settings.userName}</span>
-              <span className="user-role">Explorer</span>
-            </div>
+            <span className="user-name" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>
+              {settings.userName}
+            </span>
           </div>
         </div>
       </aside>
@@ -1152,7 +1512,8 @@ export default function App() {
                         type="number" 
                         min="1" 
                         value={travelers} 
-                        onChange={(e) => setTravelers(parseInt(e.target.value) || 1)} 
+                        onChange={(e) => setTravelers(e.target.value === '' ? '' : parseInt(e.target.value) || '')} 
+                        placeholder="e.g. 2"
                         required 
                       />
                     </div>
@@ -1163,7 +1524,8 @@ export default function App() {
                         min="1000" 
                         step="500" 
                         value={budgetLimit} 
-                        onChange={(e) => setBudgetLimit(parseInt(e.target.value) || 1000)} 
+                        onChange={(e) => setBudgetLimit(e.target.value === '' ? '' : parseInt(e.target.value) || '')} 
+                        placeholder="e.g. 30000"
                         required 
                       />
                     </div>
@@ -1643,6 +2005,43 @@ export default function App() {
               {/* Left Column: Group Members & Destination Voting */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                 
+                {/* Connect Group Card */}
+                <div className="glass-card">
+                  <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span>🔗 Connect to Group</span>
+                  </h3>
+                  <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '12px', marginTop: '4px' }}>
+                    Paste a group invite link or code to join their active trip, checklist, and expenses.
+                  </p>
+                  <form 
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      handleConnectInviteLink(inviteLinkInput);
+                    }} 
+                    style={{ display: 'flex', gap: '8px' }}
+                  >
+                    <input 
+                      type="text" 
+                      placeholder="Paste invite link or code..." 
+                      value={inviteLinkInput} 
+                      onChange={(e) => setInviteLinkInput(e.target.value)} 
+                      style={{ 
+                        flex: 1, 
+                        padding: '8px 12px', 
+                        background: 'rgba(8, 9, 12, 0.6)', 
+                        border: '1px solid var(--border)', 
+                        borderRadius: '8px', 
+                        color: 'var(--text-primary)', 
+                        fontSize: '13px' 
+                      }}
+                      required
+                    />
+                    <button type="submit" className="btn btn-primary btn-sm" style={{ whiteSpace: 'nowrap' }}>
+                      Connect
+                    </button>
+                  </form>
+                </div>
+
                 <div className="glass-card">
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
                     {isEditingGroupName ? (
@@ -1679,14 +2078,25 @@ export default function App() {
                     </span>
                   </div>
 
-                  <button 
-                    className="btn btn-secondary btn-sm" 
-                    onClick={handleShareGroup}
-                    style={{ width: '100%', marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
-                    title="Generate a link to share this group, itinerary, checklist, and expenses with friends"
-                  >
-                    <span>🔗 Copy Group Invite Link</span>
-                  </button>
+                  <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+                    <button 
+                      className="btn btn-secondary btn-sm" 
+                      onClick={handleShareGroup}
+                      style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                      title="Generate a link to share this group, itinerary, checklist, and expenses with friends"
+                    >
+                      <span>🔗 Copy Group Invite Link</span>
+                    </button>
+                    <button 
+                      type="button"
+                      className="btn btn-danger btn-sm" 
+                      onClick={handleCreateIsolatedGroup}
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                      title="Start a fresh group with only you as a member, clearing current group states"
+                    >
+                      <span>✨ Fresh Group</span>
+                    </button>
+                  </div>
 
                   <ul style={{ display: 'flex', flexDirection: 'column', gap: '10px', listStyle: 'none', marginBottom: '16px' }}>
                     {group.members.map(member => (
@@ -2004,7 +2414,7 @@ export default function App() {
                       <label>Category</label>
                       <select 
                         value={expenseCategory} 
-                        onChange={(e) => setExpenseCategory(e.target.value as any)}
+                        onChange={(e) => setExpenseCategory(e.target.value as Expense['category'])}
                       >
                         <option value="accommodation">Accommodation 🏨</option>
                         <option value="transport">Transport / Fuel 🚗</option>
@@ -2294,6 +2704,34 @@ export default function App() {
                     </div>
                   </div>
 
+                </div>
+              </div>
+
+              {/* Danger Zone Card */}
+              <div className="glass-card" style={{ borderColor: 'rgba(239, 68, 68, 0.2)', marginTop: '24px' }}>
+                <h3 style={{ color: '#f87171', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <AlertTriangle size={18} />
+                  <span>Danger Zone</span>
+                </h3>
+                <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '16px', marginTop: '4px' }}>
+                  Manage your account session or reset local data.
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <button 
+                    onClick={handleLogout} 
+                    className="btn btn-secondary btn-sm" 
+                    style={{ width: '100%', borderColor: 'rgba(239, 68, 68, 0.2)', color: '#f87171' }}
+                  >
+                    <LogOut size={14} />
+                    <span>Log Out Account</span>
+                  </button>
+                  <button 
+                    onClick={handleClearAllRecords} 
+                    className="btn btn-danger btn-sm" 
+                    style={{ width: '100%' }}
+                  >
+                    🗑️ Clear All Records & Reset
+                  </button>
                 </div>
               </div>
 

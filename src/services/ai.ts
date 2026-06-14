@@ -16,7 +16,12 @@ export const AIService = {
       'Authorization': `Bearer ${activeKey}`
     };
 
-    const body: any = {
+    const body: {
+      model: string;
+      messages: { role: string; content: string }[];
+      temperature: number;
+      response_format?: { type: string };
+    } = {
       model: model || 'gpt-4o-mini',
       messages: [
         { role: 'system', content: systemPrompt },
@@ -149,7 +154,21 @@ Make sure the total cost does NOT exceed ₹${params.budgetLimit} INR. Include r
   /**
    * Generates a high-quality mock trip itinerary when offline or no API key is specified
    */
-  generateMockTrip(params: any, durationDays: number): Trip {
+  generateMockTrip(
+    params: {
+      source: string;
+      destination: string;
+      startDate: string;
+      endDate: string;
+      travelers: number;
+      budgetLimit: number;
+      interests: string[];
+      tripType: string;
+      accommodationPreference: string;
+      transportPreference: string;
+    },
+    durationDays: number
+  ): Trip {
     const dest = params.destination.split(',')[0].trim().toLowerCase();
     
     // Pick or construct base days
