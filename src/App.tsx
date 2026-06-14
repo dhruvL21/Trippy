@@ -22,11 +22,26 @@ import {
 } from 'lucide-react';
 import { AIService } from './services/ai';
 import Auth from './components/Auth';
+import LandingPage from './components/LandingPage';
 import type { Trip, Group, Member, ChecklistItem, ChatMessage, Expense, SafetyReport, AppSettings, User } from './types';
 import './App.css';
 import logoImg from './assets/logo.png';
 
 const generateId = () => Math.random().toString(36).substring(2, 9);
+
+const fetchGroupFromDpaste = async (pasteId: string) => {
+  const cleanId = pasteId.replace('.txt', '').trim();
+  const res = await fetch(`https://dpaste.com/${cleanId}.txt`);
+  if (!res.ok) {
+    throw new Error('Failed to retrieve invite data. The code may have expired or is incorrect.');
+  }
+  const text = await res.text();
+  try {
+    return JSON.parse(text);
+  } catch (err) {
+    throw new Error('Invalid data format received from invite code.');
+  }
+};
 
 // Default mock group for immediate interaction
 const DEFAULT_GROUP: Group = {
@@ -101,6 +116,8 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'planner' | 'safety' | 'group' | 'expenses' | 'chatbot' | 'settings'>('planner');
 
   const [settings, setSettings] = useState<AppSettings>(() => {
+    const isG = localStorage.getItem('trippy_is_guest') === 'true';
+    if (isG) return DEFAULT_SETTINGS;
     const saved = localStorage.getItem('trippy_settings');
     const parsed = saved ? JSON.parse(saved) : DEFAULT_SETTINGS;
     if (!parsed.openaiApiKey && import.meta.env.VITE_OPENAI_API_KEY) {
@@ -122,16 +139,38 @@ export default function App() {
   });
 
   const [activeTrip, setActiveTrip] = useState<Trip | null>(() => {
+    const isG = localStorage.getItem('trippy_is_guest') === 'true';
+    if (isG) return null;
     const saved = localStorage.getItem('trippy_active_trip');
     return saved ? JSON.parse(saved) : null;
   });
 
   const [safetyReport, setSafetyReport] = useState<SafetyReport | null>(() => {
+    const isG = localStorage.getItem('trippy_is_guest') === 'true';
+    if (isG) return null;
     const saved = localStorage.getItem('trippy_safety_report');
     return saved ? JSON.parse(saved) : null;
   });
 
   const [group, setGroup] = useState<Group>(() => {
+    const isG = localStorage.getItem('trippy_is_guest') === 'true';
+    if (isG) {
+      return {
+        id: 'group-' + generateId(),
+        name: 'My Guest Group 🚀',
+        members: [{ id: 'mem-1', name: 'Guest (You)', upi: '' }],
+        votes: [],
+        checklist: [],
+        chatHistory: [
+          {
+            id: 'welcome-' + generateId(),
+            sender: 'System',
+            text: `Welcome to your guest session group! 👥\n\n(Please register to connect and sync with other travelers)`,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          }
+        ]
+      };
+    }
     const saved = localStorage.getItem('trippy_group');
     if (saved) return JSON.parse(saved);
     return {
@@ -146,7 +185,7 @@ export default function App() {
         {
           id: 'welcome-' + generateId(),
           sender: 'System',
-          text: `Welcome to your fresh group! 👥\n\nInvite your friends by copying the invite link above and sharing it with them. When they open/paste it, they will join this group!`,
+          text: `Welcome to your fresh group! 👥\n\nInvite your friends by sharing the invite code above. When they paste it, they will join this group!`,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         }
       ]
@@ -154,19 +193,22 @@ export default function App() {
   });
 
   const [expenses, setExpenses] = useState<Expense[]>(() => {
+    const isG = localStorage.getItem('trippy_is_guest') === 'true';
+    if (isG) return [];
     const saved = localStorage.getItem('trippy_expenses');
     return saved ? JSON.parse(saved) : [];
   });
 
   const [savedTrips, setSavedTrips] = useState<Trip[]>(() => {
+    const isG = localStorage.getItem('trippy_is_guest') === 'true';
+    if (isG) return [];
     const saved = localStorage.getItem('trippy_saved_trips');
     return saved ? JSON.parse(saved) : [];
   });
 
   const [chatbotMessages, setChatbotMessages] = useState<ChatMessage[]>(() => {
-    const saved = localStorage.getItem('trippy_chatbot_msgs');
-    if (saved) return JSON.parse(saved);
-    return [
+    const isG = localStorage.getItem('trippy_is_guest') === 'true';
+    const welcomeMsgs = [
       {
         id: 'welcome',
         sender: 'TripPilot',
@@ -175,6 +217,10 @@ export default function App() {
         isAI: true
       }
     ];
+    if (isG) return welcomeMsgs;
+    const saved = localStorage.getItem('trippy_chatbot_msgs');
+    if (saved) return JSON.parse(saved);
+    return welcomeMsgs;
   });
 
   // --- UI Control States ---
@@ -183,6 +229,11 @@ export default function App() {
   const [activeItineraryDay, setActiveItineraryDay] = useState<number>(1);
   const [replanningDay, setReplanningDay] = useState<number | null>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [showLanding, setShowLanding] = useState<boolean>(() => {
+    const savedUser = localStorage.getItem('trippy_user');
+    const savedGuest = localStorage.getItem('trippy_is_guest');
+    return !savedUser && savedGuest !== 'true';
+  });
   
   // Trip Form States
   const [source, setSource] = useState('');
@@ -216,6 +267,8 @@ export default function App() {
   const [newVoteCity, setNewVoteCity] = useState('');
   const [chatInput, setChatInput] = useState('');
   const [inviteLinkInput, setInviteLinkInput] = useState('');
+  const [generatedGroupCode, setGeneratedGroupCode] = useState<string>('');
+  const [sharingGroup, setSharingGroup] = useState<boolean>(false);
 
   // Expense Form States
   const [expenseTitle, setExpenseTitle] = useState('');
@@ -240,33 +293,93 @@ export default function App() {
     localStorage.removeItem('trippy_active_tab');
   }, []);
 
+  // --- OAuth Callback Redirect Parser ---
   useEffect(() => {
+    const hash = window.location.hash;
+    if (hash.includes('access_token=')) {
+      const params = new URLSearchParams(hash.substring(1));
+      const accessToken = params.get('access_token');
+      if (accessToken) {
+        fetch(`https://www.googleapis.com/oauth2/v3/userinfo?access_token=${accessToken}`)
+          .then(res => res.json())
+          .then(data => {
+            if (data.email) {
+              const googleUser: User = {
+                id: 'g-' + data.sub,
+                name: data.name || data.email.split('@')[0],
+                email: data.email,
+                avatarUrl: data.picture,
+                authProvider: 'google'
+              };
+              handleAuthSuccess(googleUser);
+              window.history.replaceState({}, document.title, window.location.pathname);
+            }
+          })
+          .catch(err => {
+            console.error("Failed to query Google UserInfo API:", err);
+          });
+      }
+    } else if (hash.includes('id_token=')) {
+      try {
+        const params = new URLSearchParams(hash.substring(1));
+        const idToken = params.get('id_token');
+        if (idToken) {
+          const base64Url = idToken.split('.')[1];
+          const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+          const jsonPayload = decodeURIComponent(atob(base64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
+          const payload = JSON.parse(jsonPayload);
+          
+          if (payload.email) {
+            const appleUser: User = {
+              id: 'a-' + payload.sub,
+              name: payload.email.split('@')[0],
+              email: payload.email,
+              authProvider: 'apple'
+            };
+            handleAuthSuccess(appleUser);
+            window.history.replaceState({}, document.title, window.location.pathname);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to decode Apple token payload:", err);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isGuest) return;
     localStorage.setItem('trippy_settings', JSON.stringify(settings));
-  }, [settings]);
+  }, [settings, isGuest]);
 
   useEffect(() => {
+    if (isGuest) return;
     localStorage.setItem('trippy_active_trip', activeTrip ? JSON.stringify(activeTrip) : '');
-  }, [activeTrip]);
+  }, [activeTrip, isGuest]);
 
   useEffect(() => {
+    if (isGuest) return;
     localStorage.setItem('trippy_safety_report', safetyReport ? JSON.stringify(safetyReport) : '');
-  }, [safetyReport]);
+  }, [safetyReport, isGuest]);
 
   useEffect(() => {
+    if (isGuest) return;
     localStorage.setItem('trippy_group', JSON.stringify(group));
-  }, [group]);
+  }, [group, isGuest]);
 
   useEffect(() => {
+    if (isGuest) return;
     localStorage.setItem('trippy_expenses', JSON.stringify(expenses));
-  }, [expenses]);
+  }, [expenses, isGuest]);
 
   useEffect(() => {
+    if (isGuest) return;
     localStorage.setItem('trippy_chatbot_msgs', JSON.stringify(chatbotMessages));
-  }, [chatbotMessages]);
+  }, [chatbotMessages, isGuest]);
 
   useEffect(() => {
+    if (isGuest) return;
     localStorage.setItem('trippy_saved_trips', JSON.stringify(savedTrips));
-  }, [savedTrips]);
+  }, [savedTrips, isGuest]);
 
   useEffect(() => {
     if (currentUser) {
@@ -280,6 +393,20 @@ export default function App() {
     localStorage.setItem('trippy_is_guest', String(isGuest));
   }, [isGuest]);
 
+  const broadcastGroupUpdate = useCallback((type: string, data: any) => {
+    if (!group || !group.id || isGuest) return;
+    const cleanTopic = `trippy-${group.id.replace(/[^a-zA-Z0-9-_]/g, '')}`;
+    fetch(`https://ntfy.sh/${cleanTopic}`, {
+      method: 'POST',
+      body: JSON.stringify({
+        type,
+        data,
+        senderId: currentUser?.id || 'mem-1',
+        senderName: settings.userName
+      })
+    }).catch(err => console.error("Failed to broadcast group update:", err));
+  }, [group.id, isGuest, currentUser?.id, settings.userName]);
+
   // Helper to join a shared group and map sender/receiver identities
   const performJoinGroup = useCallback((decoded: { activeTrip?: Trip | null; group?: Group; expenses?: Expense[] }) => {
     if (!decoded) return;
@@ -287,7 +414,7 @@ export default function App() {
     // 1. Process active trip
     if (decoded.activeTrip) {
       setActiveTrip(decoded.activeTrip);
-      localStorage.setItem('trippy_active_trip', JSON.stringify(decoded.activeTrip));
+      if (!isGuest) localStorage.setItem('trippy_active_trip', JSON.stringify(decoded.activeTrip));
     }
     
     // 2. Process group and re-map member identities
@@ -384,13 +511,13 @@ export default function App() {
       
       decoded.group.members = newMembers;
       setGroup(decoded.group);
-      localStorage.setItem('trippy_group', JSON.stringify(decoded.group));
+      if (!isGuest) localStorage.setItem('trippy_group', JSON.stringify(decoded.group));
     }
     
     // 3. Process expenses
     if (decoded.expenses) {
       setExpenses(decoded.expenses);
-      localStorage.setItem('trippy_expenses', JSON.stringify(decoded.expenses));
+      if (!isGuest) localStorage.setItem('trippy_expenses', JSON.stringify(decoded.expenses));
     }
     
     // 4. Safety report loading
@@ -399,34 +526,75 @@ export default function App() {
         .then(report => setSafetyReport(report))
         .catch(err => console.error('Failed to load safety report for shared trip', err));
     }
-  }, [settings.userName, settings.userUpi, settings.openaiApiKey, settings.model]);
 
-  // Handler to parse and connect group via invite link paste field
-  const handleConnectInviteLink = (linkOrCode: string) => {
-    if (!linkOrCode.trim()) return;
-    try {
-      let base64Data = linkOrCode.trim();
-      
-      // Extract from URL if fully pasted
-      if (base64Data.includes('join=')) {
-        const parts = base64Data.split('join=');
-        base64Data = parts[1].split('&')[0];
-      } else if (base64Data.includes('?')) {
-        const params = new URLSearchParams(base64Data.substring(base64Data.indexOf('?')));
-        const joinVal = params.get('join');
-        if (joinVal) {
-          base64Data = joinVal;
-        }
+    // 5. Broadcast our join event and system notice
+    const myMemberObj = {
+      id: currentUser?.id || 'mem-' + Math.random().toString(36).substring(2, 6),
+      name: settings.userName,
+      upi: settings.userUpi
+    };
+    const joinMsg = {
+      id: 'sys-' + generateId(),
+      sender: 'System',
+      text: `${settings.userName} has joined the group! 🎉`,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+    setTimeout(() => {
+      broadcastGroupUpdate('member_join', myMemberObj);
+      broadcastGroupUpdate('chat', joinMsg);
+    }, 500);
+  }, [settings.userName, settings.userUpi, settings.openaiApiKey, settings.model, isGuest, broadcastGroupUpdate, currentUser]);
+
+  // Handler to parse and connect group via invite link or code paste field
+  const handleConnectInviteLink = async (linkOrCode: string) => {
+    const trimmed = linkOrCode.trim();
+    if (!trimmed) return;
+
+    // Check if it's a dpaste URL or a short code (alphanumeric, length 6-12)
+    let isDpaste = false;
+    let dpasteCode = trimmed;
+
+    if (trimmed.includes('dpaste.com') || trimmed.includes('dpaste.org')) {
+      isDpaste = true;
+      const urlParts = trimmed.split('/');
+      dpasteCode = urlParts[urlParts.length - 1].split('.')[0];
+    } else if (trimmed.length >= 6 && trimmed.length <= 12 && /^[a-zA-Z0-9]+$/.test(trimmed)) {
+      isDpaste = true;
+    }
+
+    if (isDpaste) {
+      try {
+        const decoded = await fetchGroupFromDpaste(dpasteCode);
+        performJoinGroup(decoded);
+        setInviteLinkInput('');
+        alert(`Successfully joined group trip "${decoded.group?.name || 'Vacation'}" via invite code! 👥✈️`);
+      } catch (err) {
+        console.error("Failed to connect via invite code:", err);
+        alert((err as Error).message || "Invalid invite code or server error. Please check and try again.");
       }
-      
-      const decoded = JSON.parse(decodeURIComponent(atob(base64Data)));
-      performJoinGroup(decoded);
-      
-      setInviteLinkInput('');
-      alert(`Successfully joined group trip "${decoded.group?.name || 'Vacation'}"! 👥✈️`);
-    } catch (err) {
-      console.error("Failed to decode group from pasted invite link:", err);
-      alert("Invalid invite link or code. Please check and try again.");
+    } else {
+      // Fallback to legacy base64 URL/string parsing
+      try {
+        let base64Data = trimmed;
+        if (base64Data.includes('join=')) {
+          const parts = base64Data.split('join=');
+          base64Data = parts[1].split('&')[0];
+        } else if (base64Data.includes('?')) {
+          const params = new URLSearchParams(base64Data.substring(base64Data.indexOf('?')));
+          const joinVal = params.get('join');
+          if (joinVal) {
+            base64Data = joinVal;
+          }
+        }
+        
+        const decoded = JSON.parse(decodeURIComponent(atob(base64Data)));
+        performJoinGroup(decoded);
+        setInviteLinkInput('');
+        alert(`Successfully joined group trip "${decoded.group?.name || 'Vacation'}"! 👥✈️`);
+      } catch (err) {
+        console.error("Failed to decode group from pasted invite link:", err);
+        alert("Invalid invite link or code format. Please check and try again.");
+      }
     }
   };
 
@@ -454,18 +622,171 @@ export default function App() {
         console.error("Failed to decode shared trip from URL:", err);
       }
     } else if (joinParam) {
-      try {
-        const decoded = JSON.parse(decodeURIComponent(atob(joinParam)));
-        performJoinGroup(decoded);
-        
-        // Clean query parameter from URL
-        window.history.replaceState({}, document.title, window.location.pathname);
-        alert(`Successfully joined group trip "${decoded.group?.name || 'Vacation'}"! 👥✈️`);
-      } catch (err) {
-        console.error("Failed to decode shared group from URL:", err);
+      const trimmed = joinParam.trim();
+      let isDpaste = false;
+      let dpasteCode = trimmed;
+
+      if (trimmed.length >= 6 && trimmed.length <= 12 && /^[a-zA-Z0-9]+$/.test(trimmed)) {
+        isDpaste = true;
+      }
+
+      if (isDpaste) {
+        fetchGroupFromDpaste(dpasteCode)
+          .then(decoded => {
+            performJoinGroup(decoded);
+            window.history.replaceState({}, document.title, window.location.pathname);
+            alert(`Successfully joined group trip "${decoded.group?.name || 'Vacation'}" via invite code! 👥✈️`);
+          })
+          .catch(err => {
+            console.error("Failed to decode shared group from URL param:", err);
+          });
+      } else {
+        try {
+          const decoded = JSON.parse(decodeURIComponent(atob(trimmed)));
+          performJoinGroup(decoded);
+          
+          // Clean query parameter from URL
+          window.history.replaceState({}, document.title, window.location.pathname);
+          alert(`Successfully joined group trip "${decoded.group?.name || 'Vacation'}"! 👥✈️`);
+        } catch (err) {
+          console.error("Failed to decode shared group from URL:", err);
+        }
       }
     }
   }, [settings.model, settings.openaiApiKey, performJoinGroup]);
+
+  // Real-time group collaboration subscription via ntfy.sh SSE
+  useEffect(() => {
+    if (!group || !group.id || isGuest) return;
+    
+    const cleanTopic = `trippy-${group.id.replace(/[^a-zA-Z0-9-_]/g, '')}`;
+    const eventSource = new EventSource(`https://ntfy.sh/${cleanTopic}/sse`);
+    
+    eventSource.onmessage = (event) => {
+      try {
+        const ntfyData = JSON.parse(event.data);
+        if (ntfyData.event !== 'message') return;
+        
+        const update = JSON.parse(ntfyData.message);
+        
+        // Skip updates sent by the local client itself
+        const localSenderId = currentUser?.id || 'mem-1';
+        if (update.senderId === localSenderId) return;
+        
+        switch (update.type) {
+          case 'chat': {
+            const chatMsg = update.data;
+            setGroup(prev => {
+              if (prev.chatHistory.some(m => m.id === chatMsg.id)) return prev;
+              
+              // Ensure sender is in the group members list
+              let updatedMembers = [...prev.members];
+              const senderClean = chatMsg.sender.trim();
+              const exists = updatedMembers.some(m => m.name.replace(/\s*\(You\)$/i, '').trim().toLowerCase() === senderClean.toLowerCase());
+              if (!exists && chatMsg.sender !== 'System' && chatMsg.sender !== 'TripPilot') {
+                updatedMembers.push({
+                  id: 'mem-' + Math.random().toString(36).substring(2, 6),
+                  name: senderClean,
+                  upi: ''
+                });
+              }
+              return {
+                ...prev,
+                members: updatedMembers,
+                chatHistory: [...prev.chatHistory, chatMsg]
+              };
+            });
+            break;
+          }
+          case 'member_join': {
+            const newMember = update.data;
+            setGroup(prev => {
+              const exists = prev.members.some(m => m.name.replace(/\s*\(You\)$/i, '').trim().toLowerCase() === newMember.name.trim().toLowerCase());
+              if (exists) return prev;
+              return {
+                ...prev,
+                members: [...prev.members, newMember]
+              };
+            });
+            break;
+          }
+          case 'members_sync': {
+            const syncedMembers = update.data;
+            setGroup(prev => {
+              // Merge members: keep local user (mem-1) name, but update other members
+              const localUser = prev.members.find(m => m.id === 'mem-1') || { id: 'mem-1', name: `${settings.userName} (You)`, upi: settings.userUpi };
+              
+              const filteredIncoming = syncedMembers.filter((m: any) => {
+                const cleanInc = m.name.replace(/\s*\(You\)$/i, '').trim().toLowerCase();
+                const cleanLoc = settings.userName.trim().toLowerCase();
+                return cleanInc !== cleanLoc;
+              });
+              
+              const merged = [localUser, ...filteredIncoming];
+              
+              // Remove duplicate names if any
+              const uniqueMerged: Member[] = [];
+              const seen = new Set();
+              merged.forEach(m => {
+                const cleanName = m.name.replace(/\s*\(You\)$/i, '').trim().toLowerCase();
+                if (!seen.has(cleanName)) {
+                  seen.add(cleanName);
+                  uniqueMerged.push(m);
+                }
+              });
+              
+              return {
+                ...prev,
+                members: uniqueMerged
+              };
+            });
+            break;
+          }
+          case 'votes_sync': {
+            const syncedVotes = update.data;
+            setGroup(prev => ({
+              ...prev,
+              votes: syncedVotes
+            }));
+            break;
+          }
+          case 'checklist_sync': {
+            const syncedChecklist = update.data;
+            setGroup(prev => ({
+              ...prev,
+              checklist: syncedChecklist
+            }));
+            break;
+          }
+          case 'expenses_sync': {
+            const syncedExpenses = update.data;
+            setExpenses(syncedExpenses);
+            break;
+          }
+          case 'group_name_update': {
+            const newName = update.data;
+            setGroup(prev => ({
+              ...prev,
+              name: newName
+            }));
+            break;
+          }
+          default:
+            break;
+        }
+      } catch (err) {
+        console.error("Failed to parse real-time update:", err);
+      }
+    };
+    
+    eventSource.onerror = () => {
+      console.warn("EventSource error, will auto-reconnect.");
+    };
+    
+    return () => {
+      eventSource.close();
+    };
+  }, [group.id, isGuest, currentUser?.id, settings.userName, settings.userUpi]);
 
   // Scroll chats to bottom
   useEffect(() => {
@@ -544,25 +865,46 @@ export default function App() {
     }
   };
 
-  const handleShareGroup = () => {
+  const handleShareGroupCode = async () => {
+    setSharingGroup(true);
     try {
       const shareData = {
         activeTrip: activeTrip,
         group: group,
         expenses: expenses
       };
-      const serialized = btoa(encodeURIComponent(JSON.stringify(shareData)));
-      const inviteUrl = `${window.location.origin}${window.location.pathname}?join=${serialized}`;
+      const payload = JSON.stringify(shareData);
       
-      navigator.clipboard.writeText(inviteUrl).then(() => {
-        alert('Group invite link copied to clipboard! Share it with friends to sync the itinerary, checklist, and expenses.');
-      }).catch(err => {
-        console.error('Failed to copy link:', err);
-        prompt('Copy this link to invite group members:', inviteUrl);
+      const response = await fetch('https://dpaste.com/api/v2/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+          content: payload,
+          expiry_days: '1',
+          syntax: 'json'
+        })
       });
+      
+      if (!response.ok) {
+        throw new Error('Failed to generate invite code');
+      }
+      
+      const pasteUrl = await response.text();
+      const code = pasteUrl.trim().split('/').pop();
+      if (!code) {
+        throw new Error('Could not parse invite code from response');
+      }
+      
+      setGeneratedGroupCode(code);
+      await navigator.clipboard.writeText(code);
+      alert(`Group invite code "${code}" generated and copied to clipboard! Share it with friends to sync the itinerary, checklist, and expenses.`);
     } catch (err) {
-      console.error('Failed to serialize group data:', err);
-      alert('Failed to generate invite link.');
+      console.error('Failed to generate invite code:', err);
+      alert('Failed to generate group invite code. Please try again.');
+    } finally {
+      setSharingGroup(false);
     }
   };
 
@@ -647,7 +989,7 @@ export default function App() {
           {
             id: 'welcome-' + generateId(),
             sender: 'System',
-            text: `Welcome to your fresh group! 👥\n\nInvite your friends by copying the invite link above and sharing it with them. When they open/paste it, they will join this group!`,
+            text: `Welcome to your fresh group! 👥\n\nInvite your friends by generating an invite code above. When they enter the code in their Group Hub, they will join this group!`,
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
           }
         ]
@@ -663,6 +1005,7 @@ export default function App() {
           isAI: true
         }
       ]);
+      setShowLanding(true);
 
       alert('Logged out successfully.');
     }
@@ -881,11 +1224,13 @@ export default function App() {
   const handleSaveGroupName = (e: React.FormEvent) => {
     e.preventDefault();
     if (!tempGroupNameInput.trim()) return;
+    const newName = tempGroupNameInput.trim();
     setGroup(prev => ({
       ...prev,
-      name: tempGroupNameInput.trim()
+      name: newName
     }));
     setIsEditingGroupName(false);
+    broadcastGroupUpdate('group_name_update', newName);
   };
 
   // Group Handlers
@@ -899,10 +1244,14 @@ export default function App() {
       upi: newMemberUpi.trim() || undefined
     };
 
-    setGroup(prev => ({
-      ...prev,
-      members: [...prev.members, newMember]
-    }));
+    setGroup(prev => {
+      const updatedMembers = [...prev.members, newMember];
+      broadcastGroupUpdate('members_sync', updatedMembers);
+      return {
+        ...prev,
+        members: updatedMembers
+      };
+    });
 
     setNewMemberName('');
     setNewMemberUpi('');
@@ -910,14 +1259,18 @@ export default function App() {
 
   const handleRemoveMember = (id: string) => {
     if (id === 'mem-1') return; // Cannot delete self
-    setGroup(prev => ({
-      ...prev,
-      members: prev.members.filter(m => m.id !== id)
-    }));
+    setGroup(prev => {
+      const updatedMembers = prev.members.filter(m => m.id !== id);
+      broadcastGroupUpdate('members_sync', updatedMembers);
+      return {
+        ...prev,
+        members: updatedMembers
+      };
+    });
   };
 
   const handleVote = (city: string) => {
-    const myId = 'mem-1';
+    const myId = currentUser?.id || 'mem-1';
     setGroup(prev => {
       const updatedVotes = prev.votes.map(v => {
         if (v.city === city) {
@@ -929,6 +1282,7 @@ export default function App() {
         }
         return v;
       });
+      broadcastGroupUpdate('votes_sync', updatedVotes);
       return { ...prev, votes: updatedVotes };
     });
   };
@@ -938,10 +1292,14 @@ export default function App() {
     if (!newVoteCity.trim()) return;
     if (group.votes.some(v => v.city.toLowerCase() === newVoteCity.toLowerCase().trim())) return;
 
-    setGroup(prev => ({
-      ...prev,
-      votes: [...prev.votes, { city: newVoteCity.trim(), votes: [] }]
-    }));
+    setGroup(prev => {
+      const updatedVotes = [...prev.votes, { city: newVoteCity.trim(), votes: [] }];
+      broadcastGroupUpdate('votes_sync', updatedVotes);
+      return {
+        ...prev,
+        votes: updatedVotes
+      };
+    });
     setNewVoteCity('');
   };
 
@@ -956,10 +1314,14 @@ export default function App() {
       assigneeName: newChecklistAssignee
     };
 
-    setGroup(prev => ({
-      ...prev,
-      checklist: [...prev.checklist, newItem]
-    }));
+    setGroup(prev => {
+      const updatedChecklist = [...prev.checklist, newItem];
+      broadcastGroupUpdate('checklist_sync', updatedChecklist);
+      return {
+        ...prev,
+        checklist: updatedChecklist
+      };
+    });
     setNewChecklistText('');
   };
 
@@ -968,15 +1330,20 @@ export default function App() {
       const updatedChecklist = prev.checklist.map(c => 
         c.id === id ? { ...c, checked: !c.checked } : c
       );
+      broadcastGroupUpdate('checklist_sync', updatedChecklist);
       return { ...prev, checklist: updatedChecklist };
     });
   };
 
   const handleDeleteChecklist = (id: string) => {
-    setGroup(prev => ({
-      ...prev,
-      checklist: prev.checklist.filter(c => c.id !== id)
-    }));
+    setGroup(prev => {
+      const updatedChecklist = prev.checklist.filter(c => c.id !== id);
+      broadcastGroupUpdate('checklist_sync', updatedChecklist);
+      return {
+        ...prev,
+        checklist: updatedChecklist
+      };
+    });
   };
 
   const handleClearAllRecords = () => {
@@ -1008,6 +1375,7 @@ export default function App() {
         }
       ]);
       setInviteLinkInput('');
+      setShowLanding(true);
       
       alert("Application has been successfully reset to factory defaults! 🗑️");
     }
@@ -1027,16 +1395,18 @@ export default function App() {
           {
             id: 'welcome-' + generateId(),
             sender: 'System',
-            text: `Welcome to your fresh group! 👥\n\nInvite your friends by copying the invite link above and sharing it with them. When they open/paste it, they will join this group!`,
+            text: `Welcome to your fresh group! 👥\n\nInvite your friends by generating an invite code above. When they enter the code in their Group Hub, they will join this group!`,
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
           }
         ]
       };
       setGroup(newGroup);
       setExpenses([]);
-      localStorage.setItem('trippy_group', JSON.stringify(newGroup));
-      localStorage.setItem('trippy_expenses', JSON.stringify([]));
-      alert("Fresh isolated group created successfully! Share the invite link with your friends to connect them.");
+      if (!isGuest) {
+        localStorage.setItem('trippy_group', JSON.stringify(newGroup));
+        localStorage.setItem('trippy_expenses', JSON.stringify([]));
+      }
+      alert("Fresh isolated group created successfully! Share the invite code with your friends to connect them.");
     }
   };
 
@@ -1046,7 +1416,7 @@ export default function App() {
 
     const myMessage: ChatMessage = {
       id: generateId(),
-      sender: `${settings.userName} (You)`,
+      sender: settings.userName,
       text: chatInput.trim(),
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
@@ -1057,34 +1427,55 @@ export default function App() {
     }));
     setChatInput('');
 
-    // Trigger mock group reply after 1.5 seconds to feel live
+    // Broadcast message over ntfy
+    broadcastGroupUpdate('chat', myMessage);
+
+    // Trigger mock group reply after 2 seconds to feel live, but only if there are other members
     setTimeout(() => {
-      const peerMembers = group.members.filter(m => m.id !== 'mem-1');
-      if (peerMembers.length === 0) return;
-      const randomPeer = peerMembers[Math.floor(Math.random() * peerMembers.length)];
+      setGroup(prev => {
+        const peerMembers = prev.members.filter(m => {
+          const cleanMName = m.name.replace(/\s*\(You\)$/i, '').trim().toLowerCase();
+          const cleanLoc = settings.userName.trim().toLowerCase();
+          return cleanMName !== cleanLoc;
+        });
+        if (peerMembers.length === 0) return prev;
+        const randomPeer = peerMembers[Math.floor(Math.random() * peerMembers.length)];
 
-      const peerReplies = [
-        "Sounds like a plan! Let's double check standard ticket prices.",
-        "Nice! I will add that to my tracking notes.",
-        "UPI works there, right? Don't want to carry too much cash.",
-        "Perfect. I can handle the scooter booking once we arrive.",
-        "Can we check if there are any entry fees for that fort?",
-        "Awesome! I'm packing my powerbank now."
-      ];
-      const randomReply = peerReplies[Math.floor(Math.random() * peerReplies.length)];
+        const peerReplies = [
+          "Sounds like a plan! Let's double check standard ticket prices.",
+          "Nice! I will add that to my tracking notes.",
+          "UPI works there, right? Don't want to carry too much cash.",
+          "Perfect. I can handle the scooter booking once we arrive.",
+          "Can we check if there are any entry fees for that fort?",
+          "Awesome! I'm packing my powerbank now."
+        ];
+        const randomReply = peerReplies[Math.floor(Math.random() * peerReplies.length)];
 
-      const peerMessage: ChatMessage = {
-        id: generateId(),
-        sender: randomPeer.name,
-        text: randomReply,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      };
+        const peerMessage: ChatMessage = {
+          id: generateId(),
+          sender: randomPeer.name.replace(/\s*\(You\)$/i, ''),
+          text: randomReply,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        };
 
-      setGroup(prev => ({
-        ...prev,
-        chatHistory: [...prev.chatHistory, peerMessage]
-      }));
-    }, 1500);
+        // Also broadcast the simulated peer message to other real members so they see the simulated activity!
+        const cleanTopic = `trippy-${prev.id.replace(/[^a-zA-Z0-9-_]/g, '')}`;
+        fetch(`https://ntfy.sh/${cleanTopic}`, {
+          method: 'POST',
+          body: JSON.stringify({
+            type: 'chat',
+            data: peerMessage,
+            senderId: 'simulated-peer',
+            senderName: randomPeer.name
+          })
+        }).catch(err => console.error(err));
+
+        return {
+          ...prev,
+          chatHistory: [...prev.chatHistory, peerMessage]
+        };
+      });
+    }, 2000);
   };
 
   // Expense Handlers
@@ -1102,7 +1493,11 @@ export default function App() {
       date: new Date().toISOString().split('T')[0]
     };
 
-    setExpenses(prev => [newExpense, ...prev]);
+    setExpenses(prev => {
+      const updated = [newExpense, ...prev];
+      broadcastGroupUpdate('expenses_sync', updated);
+      return updated;
+    });
     setExpenseTitle('');
     setExpenseAmount('');
     
@@ -1123,7 +1518,11 @@ export default function App() {
   };
 
   const handleDeleteExpense = (id: string) => {
-    setExpenses(prev => prev.filter(e => e.id !== id));
+    setExpenses(prev => {
+      const updated = prev.filter(e => e.id !== id);
+      broadcastGroupUpdate('expenses_sync', updated);
+      return updated;
+    });
   };
 
   // Splitwise Debts Simplified Solver
@@ -1321,6 +1720,14 @@ export default function App() {
       });
     });
   };
+
+  if (showLanding) {
+    return (
+      <LandingPage 
+        onGetStarted={() => setShowLanding(false)} 
+      />
+    );
+  }
 
   if (!currentUser && !isGuest) {
     return (
@@ -2025,42 +2432,68 @@ export default function App() {
               {/* Left Column: Group Members & Destination Voting */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                 
-                {/* Connect Group Card */}
-                <div className="glass-card">
-                  <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span>🔗 Connect to Group</span>
-                  </h3>
-                  <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '12px', marginTop: '4px' }}>
-                    Paste a group invite link or code to join their active trip, checklist, and expenses.
-                  </p>
-                  <form 
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      handleConnectInviteLink(inviteLinkInput);
-                    }} 
-                    style={{ display: 'flex', gap: '8px' }}
-                  >
-                    <input 
-                      type="text" 
-                      placeholder="Paste invite link or code..." 
-                      value={inviteLinkInput} 
-                      onChange={(e) => setInviteLinkInput(e.target.value)} 
-                      style={{ 
-                        flex: 1, 
-                        padding: '8px 12px', 
-                        background: 'rgba(8, 9, 12, 0.6)', 
-                        border: '1px solid var(--border)', 
-                        borderRadius: '8px', 
-                        color: 'var(--text-primary)', 
-                        fontSize: '13px' 
-                      }}
-                      required
-                    />
-                    <button type="submit" className="btn btn-primary btn-sm" style={{ whiteSpace: 'nowrap' }}>
-                      Connect
-                    </button>
-                  </form>
-                </div>
+                {/* Connect Group Card / Guest Warning */}
+                {isGuest ? (
+                  <div className="glass-card" style={{ padding: '24px', textAlign: 'center', position: 'relative', overflow: 'hidden' }}>
+                    <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: 'radial-gradient(circle at top right, rgba(234, 67, 53, 0.05), transparent 60%)', zIndex: 0 }}></div>
+                    <div style={{ position: 'relative', zIndex: 1 }}>
+                      <div style={{ display: 'inline-flex', padding: '10px', borderRadius: '50%', background: 'rgba(234, 67, 53, 0.1)', color: '#ea4335', marginBottom: '14px' }}>
+                        <Shield size={24} />
+                      </div>
+                      <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '8px' }}>Group Sync Locked</h3>
+                      <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)', lineHeight: '1.5', marginBottom: '18px', maxWidth: '320px', marginLeft: 'auto', marginRight: 'auto' }}>
+                        Guests cannot generate invite codes or join synchronized group trips. Create a free account to plan trips with friends.
+                      </p>
+                      <button 
+                        type="button" 
+                        className="btn btn-primary btn-sm" 
+                        onClick={() => {
+                          setIsGuest(false);
+                          setCurrentUser(null);
+                        }}
+                        style={{ padding: '8px 20px' }}
+                      >
+                        Sign In / Register
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="glass-card">
+                    <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span>🔗 Connect to Group</span>
+                    </h3>
+                    <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '12px', marginTop: '4px' }}>
+                      Paste a group invite link or code to join their active trip, checklist, and expenses.
+                    </p>
+                    <form 
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        handleConnectInviteLink(inviteLinkInput);
+                      }} 
+                      style={{ display: 'flex', gap: '8px' }}
+                    >
+                      <input 
+                        type="text" 
+                        placeholder="Paste invite link or code..." 
+                        value={inviteLinkInput} 
+                        onChange={(e) => setInviteLinkInput(e.target.value)} 
+                        style={{ 
+                          flex: 1, 
+                          padding: '8px 12px', 
+                          background: 'rgba(8, 9, 12, 0.6)', 
+                          border: '1px solid var(--border)', 
+                          borderRadius: '8px', 
+                          color: 'var(--text-primary)', 
+                          fontSize: '13px' 
+                        }}
+                        required
+                      />
+                      <button type="submit" className="btn btn-primary btn-sm" style={{ whiteSpace: 'nowrap' }}>
+                        Connect
+                      </button>
+                    </form>
+                  </div>
+                )}
 
                 <div className="glass-card">
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
@@ -2098,20 +2531,72 @@ export default function App() {
                     </span>
                   </div>
 
-                  <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
-                    <button 
-                      className="btn btn-secondary btn-sm" 
-                      onClick={handleShareGroup}
-                      style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
-                      title="Generate a link to share this group, itinerary, checklist, and expenses with friends"
-                    >
-                      <span>🔗 Copy Group Invite Link</span>
-                    </button>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '16px', width: '100%' }}>
+                    {!isGuest && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}>
+                        <button 
+                          className="btn btn-secondary btn-sm" 
+                          onClick={handleShareGroupCode}
+                          disabled={sharingGroup}
+                          style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                          title="Generate a 9-character code to share this group, itinerary, checklist, and expenses with friends"
+                        >
+                          {sharingGroup ? (
+                            <>
+                              <RefreshCw size={14} className="animate-spin" style={{ marginRight: '6px' }} />
+                              <span>Generating Invite Code...</span>
+                            </>
+                          ) : (
+                            <>
+                              <span>🔗 Generate & Copy Invite Code</span>
+                            </>
+                          )}
+                        </button>
+                        
+                        {generatedGroupCode && (
+                          <div style={{ 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            justifyContent: 'space-between', 
+                            padding: '8px 12px', 
+                            background: 'rgba(52, 168, 83, 0.1)', 
+                            border: '1px solid rgba(52, 168, 83, 0.3)', 
+                            borderRadius: '8px',
+                            marginTop: '2px'
+                          }}>
+                            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Active Invite Code:</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <code style={{ 
+                                fontSize: '13px', 
+                                fontWeight: 'bold', 
+                                color: 'var(--primary-hover)',
+                                letterSpacing: '1px',
+                                background: 'rgba(255, 255, 255, 0.05)',
+                                padding: '2px 6px',
+                                borderRadius: '4px'
+                              }}>{generatedGroupCode}</code>
+                              <button 
+                                type="button"
+                                className="btn btn-secondary btn-sm"
+                                style={{ padding: '2px 8px', fontSize: '11px', height: 'auto' }}
+                                onClick={() => {
+                                  navigator.clipboard.writeText(generatedGroupCode);
+                                  alert('Invite code copied to clipboard!');
+                                }}
+                              >
+                                Copy
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    
                     <button 
                       type="button"
                       className="btn btn-danger btn-sm" 
                       onClick={handleCreateIsolatedGroup}
-                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', width: '100%' }}
                       title="Start a fresh group with only you as a member, clearing current group states"
                     >
                       <span>✨ Fresh Group</span>
@@ -2289,19 +2774,50 @@ export default function App() {
 
                   <div className="chat-container" style={{ height: '250px' }}>
                     <div className="chat-history">
-                      {group.chatHistory.map(msg => (
-                        <div 
-                          key={msg.id} 
-                          className={`chat-msg ${msg.sender.includes('(You)') ? 'chat-msg-user' : 'chat-msg-ai'}`}
-                          style={{ maxWidth: '85%' }}
-                        >
-                          <div style={{ fontSize: '11px', fontWeight: 600, color: msg.sender.includes('(You)') ? 'rgba(255,255,255,0.8)' : 'var(--primary-hover)', marginBottom: '2px' }}>
-                            {msg.sender.split(' ')[0]}
+                      {group.chatHistory.map(msg => {
+                        const cleanSender = msg.sender.replace(/\s*\(You\)$/i, '').trim();
+                        const isMe = cleanSender.toLowerCase() === settings.userName.trim().toLowerCase() || msg.sender.includes('(You)');
+                        const isSystem = msg.sender === 'System';
+                        
+                        let msgClass = 'chat-msg-ai';
+                        let senderColor = 'var(--primary-hover)';
+                        let displayName = cleanSender;
+
+                        if (isMe) {
+                          msgClass = 'chat-msg-user';
+                          senderColor = 'rgba(255,255,255,0.8)';
+                          displayName = `${settings.userName} (You)`;
+                        } else if (isSystem) {
+                          msgClass = 'chat-msg-system';
+                          senderColor = 'var(--warning)';
+                          displayName = 'System';
+                        }
+
+                        return (
+                          <div 
+                            key={msg.id} 
+                            className={`chat-msg ${msgClass}`}
+                            style={{ 
+                              maxWidth: '85%',
+                              alignSelf: isMe ? 'flex-end' : (isSystem ? 'center' : 'flex-start'),
+                              background: isSystem ? 'rgba(255, 193, 7, 0.05)' : undefined,
+                              border: isSystem ? '1px dashed rgba(255, 193, 7, 0.2)' : undefined,
+                              textAlign: isSystem ? 'center' : 'left',
+                              padding: isSystem ? '6px 12px' : undefined,
+                              borderRadius: isSystem ? '8px' : undefined,
+                              margin: isSystem ? '8px auto' : undefined
+                            }}
+                          >
+                            {!isSystem && (
+                              <div style={{ fontSize: '11px', fontWeight: 600, color: senderColor, marginBottom: '2px' }}>
+                                {displayName}
+                              </div>
+                            )}
+                            <div>{msg.text}</div>
+                            <div className="chat-msg-time">{msg.timestamp}</div>
                           </div>
-                          <div>{msg.text}</div>
-                          <div className="chat-msg-time">{msg.timestamp}</div>
-                        </div>
-                      ))}
+                        );
+                      })}
                       <div ref={groupChatEndRef} />
                     </div>
 
