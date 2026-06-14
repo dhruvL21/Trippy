@@ -134,7 +134,8 @@ export default function App() {
             text: `Welcome to your guest session group! 👥\n\n(Please register to connect and sync with other travelers)`,
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
           }
-        ]
+        ],
+        hostId: 'mem-1'
       };
     }
     const saved = localStorage.getItem('trippy_group');
@@ -154,7 +155,8 @@ export default function App() {
           text: `Welcome to your fresh group! 👥\n\nInvite your friends by sharing the invite code above. When they paste it, they will join this group!`,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         }
-      ]
+      ],
+      hostId: 'mem-1'
     };
   });
 
@@ -498,6 +500,9 @@ export default function App() {
         });
       }
       
+      if (senderInDecoded) {
+        decoded.group.hostId = newSenderId;
+      }
       decoded.group.members = newMembers;
       setGroup(decoded.group);
       if (!isGuest) localStorage.setItem('trippy_group', JSON.stringify(decoded.group));
@@ -516,21 +521,14 @@ export default function App() {
         .catch(err => console.error('Failed to load safety report for shared trip', err));
     }
 
-    // 5. Broadcast our join event and system notice
+    // 5. Broadcast our join event
     const myMemberObj = {
       id: currentUser?.id || 'mem-' + Math.random().toString(36).substring(2, 6),
       name: settings.userName,
       upi: settings.userUpi
     };
-    const joinMsg = {
-      id: 'sys-' + generateId(),
-      sender: 'System',
-      text: `${settings.userName} has joined the group! 🎉`,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    };
     setTimeout(() => {
       broadcastGroupUpdate('member_join', myMemberObj, decoded.group?.id);
-      broadcastGroupUpdate('chat', joinMsg, decoded.group?.id);
     }, 500);
   }, [settings.userName, settings.userUpi, settings.openaiApiKey, settings.model, isGuest, broadcastGroupUpdate, currentUser]);
 
@@ -750,8 +748,59 @@ export default function App() {
             });
             break;
           }
+          case 'member_leave': {
+            const leavingMember = update.data;
+            setGroup(prev => {
+              const cleanLeaving = leavingMember.name.trim().toLowerCase();
+              const updatedMembers = prev.members.filter(m => m.name.replace(/\s*\(You\)$/i, '').trim().toLowerCase() !== cleanLeaving);
+              return {
+                ...prev,
+                members: updatedMembers
+              };
+            });
+            break;
+          }
           case 'members_sync': {
             const syncedMembers = update.data;
+
+            // Check if we have been removed by the admin
+            const cleanLoc = settings.userName.trim().toLowerCase();
+            const stillInGroup = syncedMembers.some((m: any) => {
+              const cleanM = m.name.replace(/\s*\(You\)$/i, '').trim().toLowerCase();
+              return cleanM === cleanLoc;
+            });
+            
+            const isLocalAdmin = !latestGroupRef.current?.hostId || latestGroupRef.current?.hostId === 'mem-1';
+            
+            if (!stillInGroup && !isLocalAdmin && syncedMembers.length > 0) {
+              alert("You have been removed from this group by the admin. 👥");
+              const newGroup: Group = {
+                id: 'group-' + generateId(),
+                name: `${settings.userName}'s Trip Group 🚀`,
+                members: [
+                  { id: 'mem-1', name: `${settings.userName} (You)`, upi: settings.userUpi }
+                ],
+                votes: [],
+                checklist: [],
+                chatHistory: [
+                  {
+                    id: 'welcome-' + generateId(),
+                    sender: 'System',
+                    text: `Welcome to your fresh group! 👥\n\nInvite your friends by generating an invite code above. When they enter the code in their Group Hub, they will join this group!`,
+                    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                  }
+                ],
+                hostId: 'mem-1'
+              };
+              setGroup(newGroup);
+              setExpenses([]);
+              if (!isGuest) {
+                localStorage.setItem('trippy_group', JSON.stringify(newGroup));
+                localStorage.setItem('trippy_expenses', JSON.stringify([]));
+              }
+              break;
+            }
+
             setGroup(prev => {
               // Merge members: keep local user (mem-1) name, but update other members
               const localUser = prev.members.find(m => m.id === 'mem-1') || { id: 'mem-1', name: `${settings.userName} (You)`, upi: settings.userUpi };
@@ -759,8 +808,8 @@ export default function App() {
               const filteredIncoming = syncedMembers
                 .filter((m: any) => {
                   const cleanInc = m.name.replace(/\s*\(You\)$/i, '').trim().toLowerCase();
-                  const cleanLoc = settings.userName.trim().toLowerCase();
-                  return cleanInc !== cleanLoc;
+                  const cleanLocName = settings.userName.trim().toLowerCase();
+                  return cleanInc !== cleanLocName;
                 })
                 .map((m: any) => ({
                   ...m,
@@ -1037,7 +1086,8 @@ export default function App() {
             text: `Welcome to your fresh group! 👥\n\nInvite your friends by generating an invite code above. When they enter the code in their Group Hub, they will join this group!`,
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
           }
-        ]
+        ],
+        hostId: 'mem-1'
       };
       setGroup(freshGroup);
       setExpenses([]);
@@ -1304,9 +1354,28 @@ export default function App() {
 
   const handleRemoveMember = (id: string) => {
     if (id === 'mem-1') return; // Cannot delete self
+    
+    const memberToRemove = group.members.find(m => m.id === id);
+    if (!memberToRemove) return;
+    
+    const cleanName = memberToRemove.name.replace(/\s*\(You\)$/i, '').trim();
+    if (!confirm(`Are you sure you want to remove ${cleanName} from the group?`)) return;
+
     setGroup(prev => {
       const updatedMembers = prev.members.filter(m => m.id !== id);
+      
+      // Broadcast updated list to peers
       broadcastGroupUpdate('members_sync', updatedMembers);
+      
+      // Broadcast a system message inside chat
+      const removeMsg = {
+        id: 'sys-' + generateId(),
+        sender: 'System',
+        text: `${cleanName} has been removed from the group by the admin. 👥`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      };
+      broadcastGroupUpdate('chat', removeMsg);
+
       return {
         ...prev,
         members: updatedMembers
@@ -1437,7 +1506,8 @@ export default function App() {
               text: `Welcome to your guest session group! 👥\n\n(Please register to connect and sync with other travelers)`,
               timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
             }
-          ]
+          ],
+          hostId: 'mem-1'
         });
         setExpenses([]);
       } else {
@@ -1456,7 +1526,8 @@ export default function App() {
               text: `Welcome to your fresh group! 👥\n\nInvite your friends by generating an invite code above. When they enter the code in their Group Hub, they will join this group!`,
               timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
             }
-          ]
+          ],
+          hostId: 'mem-1'
         };
         setGroup(freshGroup);
         setExpenses([]);
@@ -1495,7 +1566,8 @@ export default function App() {
             text: `Welcome to your fresh group! 👥\n\nInvite your friends by generating an invite code above. When they enter the code in their Group Hub, they will join this group!`,
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
           }
-        ]
+        ],
+        hostId: 'mem-1'
       };
       setGroup(newGroup);
       setExpenses([]);
@@ -1504,6 +1576,49 @@ export default function App() {
         localStorage.setItem('trippy_expenses', JSON.stringify([]));
       }
       alert("Fresh isolated group created successfully! Share the invite code with your friends to connect them.");
+    }
+  };
+
+  const handleLeaveGroup = () => {
+    if (confirm("Are you sure you want to leave this group? This will clear current group data and return you to an isolated group.")) {
+      // 1. Broadcast leave event to all peers
+      broadcastGroupUpdate('member_leave', { name: settings.userName });
+
+      // 2. Broadcast system chat notification
+      const leaveMsg = {
+        id: 'sys-' + generateId(),
+        sender: 'System',
+        text: `${settings.userName} has left the group. 🚪`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      };
+      broadcastGroupUpdate('chat', leaveMsg);
+
+      // 3. Reset locally
+      const newGroup: Group = {
+        id: 'group-' + generateId(),
+        name: `${settings.userName}'s Trip Group 🚀`,
+        members: [
+          { id: 'mem-1', name: `${settings.userName} (You)`, upi: settings.userUpi }
+        ],
+        votes: [],
+        checklist: [],
+        chatHistory: [
+          {
+            id: 'welcome-' + generateId(),
+            sender: 'System',
+            text: `Welcome to your fresh group! 👥\n\nInvite your friends by generating an invite code above. When they enter the code in their Group Hub, they will join this group!`,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          }
+        ],
+        hostId: 'mem-1'
+      };
+      setGroup(newGroup);
+      setExpenses([]);
+      if (!isGuest) {
+        localStorage.setItem('trippy_group', JSON.stringify(newGroup));
+        localStorage.setItem('trippy_expenses', JSON.stringify([]));
+      }
+      alert("You have left the group and returned to an isolated session.");
     }
   };
 
@@ -2689,43 +2804,64 @@ export default function App() {
                       </div>
                     )}
                     
-                    <button 
-                      type="button"
-                      className="btn btn-danger btn-sm" 
-                      onClick={handleCreateIsolatedGroup}
-                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', width: '100%' }}
-                      title="Start a fresh group with only you as a member, clearing current group states"
-                    >
-                      <span>✨ Fresh Group</span>
-                    </button>
+                    {(!group.hostId || group.hostId === 'mem-1') ? (
+                      <button 
+                        type="button"
+                        className="btn btn-danger btn-sm" 
+                        onClick={handleCreateIsolatedGroup}
+                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', width: '100%' }}
+                        title="Start a fresh group with only you as a member, clearing current group states"
+                      >
+                        <span>✨ Fresh Group</span>
+                      </button>
+                    ) : (
+                      <button 
+                        type="button"
+                        className="btn btn-danger btn-sm" 
+                        onClick={handleLeaveGroup}
+                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', width: '100%' }}
+                        title="Leave this shared group and start an isolated session"
+                      >
+                        <span>🚪 Leave Group</span>
+                      </button>
+                    )}
                   </div>
 
                   <ul style={{ display: 'flex', flexDirection: 'column', gap: '10px', listStyle: 'none', marginBottom: '16px' }}>
-                    {group.members.map(member => (
-                      <li 
-                        key={member.id} 
-                        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border)', borderRadius: '8px' }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <div className="avatar" style={{ width: '28px', height: '28px', fontSize: '11px' }}>
-                            {member.name.slice(0, 2).toUpperCase()}
+                    {group.members.map(member => {
+                      const isLocalAdmin = !group.hostId || group.hostId === 'mem-1';
+                      const isThisMemberAdmin = (!group.hostId && member.id === 'mem-1') || (group.hostId && (member.id === group.hostId || (group.hostId === 'mem-1' && member.id === 'mem-1')));
+                      
+                      return (
+                        <li 
+                          key={member.id} 
+                          style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border)', borderRadius: '8px' }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <div className="avatar" style={{ width: '28px', height: '28px', fontSize: '11px' }}>
+                              {member.name.slice(0, 2).toUpperCase()}
+                            </div>
+                            <div>
+                              <strong style={{ fontSize: '13px' }}>{member.name}</strong>
+                              {isThisMemberAdmin && (
+                                <span style={{ fontSize: '10px', color: 'var(--primary)', background: 'rgba(139, 92, 246, 0.1)', padding: '2px 6px', borderRadius: '4px', marginLeft: '8px', border: '1px solid rgba(139, 92, 246, 0.2)' }}>Admin 👑</span>
+                              )}
+                              {member.upi && <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginLeft: '8px' }}>({member.upi})</span>}
+                            </div>
                           </div>
-                          <div>
-                            <strong style={{ fontSize: '13px' }}>{member.name}</strong>
-                            {member.upi && <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginLeft: '8px' }}>({member.upi})</span>}
-                          </div>
-                        </div>
-                        {member.id !== 'mem-1' && (
-                          <button 
-                            className="btn btn-secondary btn-sm" 
-                            style={{ padding: '4px', minWidth: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                            onClick={() => handleRemoveMember(member.id)}
-                          >
-                            <Trash2 size={12} />
-                          </button>
-                        )}
-                      </li>
-                    ))}
+                          {isLocalAdmin && member.id !== 'mem-1' && (
+                            <button 
+                              className="btn btn-secondary btn-sm" 
+                              style={{ padding: '4px', minWidth: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                              onClick={() => handleRemoveMember(member.id)}
+                              title="Remove member from group"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          )}
+                        </li>
+                      );
+                    })}
                   </ul>
 
                   <form onSubmit={handleAddMember} style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>

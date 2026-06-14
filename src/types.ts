@@ -80,6 +80,7 @@ export interface Group {
   votes: DestinationVote[];
   checklist: ChecklistItem[];
   chatHistory: ChatMessage[];
+  hostId?: string;
 }
 
 export interface Expense {
