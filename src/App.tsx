@@ -330,6 +330,7 @@ export default function App() {
   // Keep latest refs of group and expenses to avoid stale closures in EventSource SSE listener
   const latestGroupRef = useRef<Group>(group);
   const latestExpensesRef = useRef<Expense[]>(expenses);
+  const clientId = useRef<string>('client-' + Math.random().toString(36).substring(2, 15) + '-' + Date.now());
 
   useEffect(() => {
     latestGroupRef.current = group;
@@ -470,11 +471,61 @@ export default function App() {
       body: JSON.stringify({
         type,
         data,
-        senderId: currentUser?.id || 'mem-1',
+        senderId: clientId.current,
         senderName: settings.userName
       })
     }).catch(err => console.error("Failed to broadcast group update:", err));
-  }, [isGuest, currentUser?.id, settings.userName]);
+  }, [isGuest, settings.userName]);
+
+  // Auto-heal/sanitize legacy vote IDs in group.votes to stable clean names
+  useEffect(() => {
+    if (isGuest || !group.votes || group.votes.length === 0) return;
+    
+    let needsUpdate = false;
+    const myName = settings.userName.replace(/\s*\(You\)$/i, '').trim();
+    
+    const healedVotes = group.votes.map(v => {
+      const cleanVotes = v.votes.map(val => {
+        const cleanVal = val.trim();
+        // 1. If it matches mem-1 or currentUser.id, resolve to our clean name
+        if (cleanVal === 'mem-1' || (currentUser && cleanVal === currentUser.id)) {
+          if (cleanVal !== myName) {
+            needsUpdate = true;
+          }
+          return myName;
+        }
+        // 2. If it matches a member ID in group.members, resolve to their clean name
+        const found = group.members.find(m => m.id === cleanVal);
+        if (found) {
+          const memberCleanName = found.name.replace(/\s*\(You\)$/i, '').trim();
+          if (cleanVal !== memberCleanName) {
+            needsUpdate = true;
+          }
+          return memberCleanName;
+        }
+        return cleanVal;
+      });
+      
+      // Remove any duplicate names that might result from mapping
+      const uniqueCleanVotes = Array.from(new Set(cleanVotes));
+      if (uniqueCleanVotes.length !== v.votes.length) {
+        needsUpdate = true;
+      }
+      
+      return {
+        ...v,
+        votes: uniqueCleanVotes
+      };
+    });
+
+    if (needsUpdate) {
+      setGroup(prev => ({
+        ...prev,
+        votes: healedVotes
+      }));
+      broadcastGroupUpdate('votes_sync', healedVotes);
+    }
+  }, [group.votes, group.members, currentUser, settings.userName, isGuest, broadcastGroupUpdate]);
 
   // Helper to join a shared group and map sender/receiver identities
   const performJoinGroup = useCallback((decoded: { activeTrip?: Trip | null; group?: Group; expenses?: Expense[] }) => {
@@ -526,11 +577,20 @@ export default function App() {
           upi: receiverUpi
         });
         
-        // Update destination votes to map sender's old 'mem-1' to newSenderId
+        // Convert any vote IDs to member names for stability
         if (decoded.group.votes) {
           decoded.group.votes = decoded.group.votes.map(v => ({
             ...v,
-            votes: v.votes.map((id: string) => id === 'mem-1' ? newSenderId : id)
+            votes: v.votes.map((idOrName: string) => {
+              if (idOrName === 'mem-1') {
+                return senderCleanName;
+              }
+              const found = originalMembers.find(m => m.id === idOrName);
+              if (found) {
+                return found.name.replace(/\s*\(You\)$/i, '').trim();
+              }
+              return idOrName;
+            })
           }));
         }
         
@@ -756,12 +816,11 @@ export default function App() {
     eventSource.onopen = () => {
       // Prompt other active peers to send us the current state
       setTimeout(() => {
-        const localSenderId = currentUser?.id || 'mem-1';
         fetch(`https://ntfy.sh/${cleanTopic}`, {
           method: 'POST',
           body: JSON.stringify({
             type: 'request_sync',
-            senderId: localSenderId,
+            senderId: clientId.current,
             senderName: settings.userName
           })
         }).catch(err => console.error("Failed to send request_sync on EventSource open:", err));
@@ -776,12 +835,11 @@ export default function App() {
         const update = JSON.parse(ntfyData.message);
         
         // Skip updates sent by the local client itself
-        const localSenderId = currentUser?.id || 'mem-1';
-        if (update.senderId === localSenderId) return;
+        if (update.senderId === clientId.current) return;
         
         switch (update.type) {
           case 'request_sync': {
-            if (update.senderId !== localSenderId) {
+            if (update.senderId !== clientId.current) {
               const currentGroup = latestGroupRef.current;
               const currentExpenses = latestExpensesRef.current;
               
@@ -1018,7 +1076,7 @@ export default function App() {
     return () => {
       eventSource.close();
     };
-  }, [group.id, isGuest, currentUser?.id, settings.userName, settings.userUpi, broadcastGroupUpdate, showNotification]);
+  }, [group.id, isGuest, settings.userName, settings.userUpi, broadcastGroupUpdate, showNotification]);
 
   // Scroll chats to bottom
   useEffect(() => {
@@ -1477,14 +1535,12 @@ export default function App() {
       upi: newMemberUpi.trim() || undefined
     };
 
-    setGroup(prev => {
-      const updatedMembers = [...prev.members, newMember];
-      broadcastGroupUpdate('members_sync', updatedMembers);
-      return {
-        ...prev,
-        members: updatedMembers
-      };
-    });
+    const updatedMembers = [...group.members, newMember];
+    setGroup(prev => ({
+      ...prev,
+      members: updatedMembers
+    }));
+    broadcastGroupUpdate('members_sync', updatedMembers);
 
     setNewMemberName('');
     setNewMemberUpi('');
@@ -1499,44 +1555,52 @@ export default function App() {
     const cleanName = memberToRemove.name.replace(/\s*\(You\)$/i, '').trim();
     if (!confirm(`Are you sure you want to remove ${cleanName} from the group?`)) return;
 
-    setGroup(prev => {
-      const updatedMembers = prev.members.filter(m => m.id !== id);
-      
-      // Broadcast updated list to peers
-      broadcastGroupUpdate('members_sync', updatedMembers);
-      
-      // Broadcast a system message inside chat
-      const removeMsg = {
-        id: 'sys-' + generateId(),
-        sender: 'System',
-        text: `${cleanName} has been removed from the group by the admin. 👥`,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      };
-      broadcastGroupUpdate('chat', removeMsg);
-
-      return {
-        ...prev,
-        members: updatedMembers
-      };
-    });
+    const updatedMembers = group.members.filter(m => m.id !== id);
+    setGroup(prev => ({
+      ...prev,
+      members: updatedMembers
+    }));
+    
+    // Broadcast updated list to peers
+    broadcastGroupUpdate('members_sync', updatedMembers);
+    
+    // Broadcast a system message inside chat
+    const removeMsg = {
+      id: 'sys-' + generateId(),
+      sender: 'System',
+      text: `${cleanName} has been removed from the group by the admin. 👥`,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+    broadcastGroupUpdate('chat', removeMsg);
   };
 
   const handleVote = (city: string) => {
-    const myId = currentUser?.id || 'mem-1';
-    setGroup(prev => {
-      const updatedVotes = prev.votes.map(v => {
-        if (v.city === city) {
-          const hasVoted = v.votes.includes(myId);
-          return {
-            ...v,
-            votes: hasVoted ? v.votes.filter(id => id !== myId) : [...v.votes, myId]
-          };
-        }
-        return v;
-      });
-      broadcastGroupUpdate('votes_sync', updatedVotes);
-      return { ...prev, votes: updatedVotes };
+    const myName = settings.userName.replace(/\s*\(You\)$/i, '').trim();
+    const updatedVotes = group.votes.map(v => {
+      if (v.city === city) {
+        // Normalize votes list to clean names
+        const cleanVotes = v.votes.map(val => {
+          if (val === 'mem-1' || (currentUser && val === currentUser.id)) {
+            return settings.userName.replace(/\s*\(You\)$/i, '').trim();
+          }
+          const found = group.members.find(m => m.id === val);
+          if (found) return found.name.replace(/\s*\(You\)$/i, '').trim();
+          return val;
+        });
+        const hasVoted = cleanVotes.some(name => name.toLowerCase() === myName.toLowerCase());
+        const newVotes = hasVoted
+          ? cleanVotes.filter(name => name.toLowerCase() !== myName.toLowerCase())
+          : [...cleanVotes, myName];
+        return {
+          ...v,
+          votes: newVotes
+        };
+      }
+      return v;
     });
+
+    setGroup(prev => ({ ...prev, votes: updatedVotes }));
+    broadcastGroupUpdate('votes_sync', updatedVotes);
   };
 
   const handleAddVoteOption = (e: React.FormEvent) => {
@@ -1544,14 +1608,12 @@ export default function App() {
     if (!newVoteCity.trim()) return;
     if (group.votes.some(v => v.city.toLowerCase() === newVoteCity.toLowerCase().trim())) return;
 
-    setGroup(prev => {
-      const updatedVotes = [...prev.votes, { city: newVoteCity.trim(), votes: [] }];
-      broadcastGroupUpdate('votes_sync', updatedVotes);
-      return {
-        ...prev,
-        votes: updatedVotes
-      };
-    });
+    const updatedVotes = [...group.votes, { city: newVoteCity.trim(), votes: [] }];
+    setGroup(prev => ({
+      ...prev,
+      votes: updatedVotes
+    }));
+    broadcastGroupUpdate('votes_sync', updatedVotes);
     setNewVoteCity('');
   };
 
@@ -1566,36 +1628,27 @@ export default function App() {
       assigneeName: newChecklistAssignee
     };
 
-    setGroup(prev => {
-      const updatedChecklist = [...prev.checklist, newItem];
-      broadcastGroupUpdate('checklist_sync', updatedChecklist);
-      return {
-        ...prev,
-        checklist: updatedChecklist
-      };
-    });
+    const updatedChecklist = [...group.checklist, newItem];
+    setGroup(prev => ({
+      ...prev,
+      checklist: updatedChecklist
+    }));
+    broadcastGroupUpdate('checklist_sync', updatedChecklist);
     setNewChecklistText('');
   };
 
   const toggleChecklist = (id: string) => {
-    setGroup(prev => {
-      const updatedChecklist = prev.checklist.map(c => 
-        c.id === id ? { ...c, checked: !c.checked } : c
-      );
-      broadcastGroupUpdate('checklist_sync', updatedChecklist);
-      return { ...prev, checklist: updatedChecklist };
-    });
+    const updatedChecklist = group.checklist.map(c => 
+      c.id === id ? { ...c, checked: !c.checked } : c
+    );
+    setGroup(prev => ({ ...prev, checklist: updatedChecklist }));
+    broadcastGroupUpdate('checklist_sync', updatedChecklist);
   };
 
   const handleDeleteChecklist = (id: string) => {
-    setGroup(prev => {
-      const updatedChecklist = prev.checklist.filter(c => c.id !== id);
-      broadcastGroupUpdate('checklist_sync', updatedChecklist);
-      return {
-        ...prev,
-        checklist: updatedChecklist
-      };
-    });
+    const updatedChecklist = group.checklist.filter(c => c.id !== id);
+    setGroup(prev => ({ ...prev, checklist: updatedChecklist }));
+    broadcastGroupUpdate('checklist_sync', updatedChecklist);
   };
 
   const handleClearAllRecords = () => {
@@ -1796,11 +1849,9 @@ export default function App() {
       date: new Date().toISOString().split('T')[0]
     };
 
-    setExpenses(prev => {
-      const updated = [newExpense, ...prev];
-      broadcastGroupUpdate('expenses_sync', updated);
-      return updated;
-    });
+    const updated = [newExpense, ...expenses];
+    setExpenses(updated);
+    broadcastGroupUpdate('expenses_sync', updated);
     setExpenseTitle('');
     setExpenseAmount('');
     
@@ -1821,11 +1872,9 @@ export default function App() {
   };
 
   const handleDeleteExpense = (id: string) => {
-    setExpenses(prev => {
-      const updated = prev.filter(e => e.id !== id);
-      broadcastGroupUpdate('expenses_sync', updated);
-      return updated;
-    });
+    const updated = expenses.filter(e => e.id !== id);
+    setExpenses(updated);
+    broadcastGroupUpdate('expenses_sync', updated);
   };
 
   // Splitwise Debts Simplified Solver
@@ -3034,11 +3083,27 @@ export default function App() {
                         <div>
                           <strong style={{ fontSize: '14px' }}>{v.city}</strong>
                           <div style={{ display: 'flex', gap: '4px', marginTop: '4px', flexWrap: 'wrap' }}>
-                            {v.votes.map(id => {
-                              const name = group.members.find(m => m.id === id)?.name || 'Someone';
+                            {v.votes.map((idOrName, idx) => {
+                              let name = idOrName;
+                              if (idOrName === 'mem-1' || (currentUser && idOrName === currentUser.id)) {
+                                name = settings.userName;
+                              } else {
+                                const found = group.members.find(m => m.id === idOrName);
+                                if (found) {
+                                  name = found.name;
+                                }
+                              }
+                              let cleanName = name.replace(/\s*\(You\)$/i, '').trim();
+                              // Fallback to 'Someone' if it's an unresolved ID format
+                              if (/^(mem-|g-|a-)/i.test(cleanName)) {
+                                cleanName = 'Someone';
+                              }
+                              const isMe = cleanName.toLowerCase() === settings.userName.trim().toLowerCase();
+                              const displayName = isMe ? `${settings.userName} (You)` : cleanName;
+
                               return (
-                                <span key={id} style={{ fontSize: '9px', background: 'rgba(255,255,255,0.05)', padding: '2px 6px', borderRadius: '4px', color: 'var(--text-secondary)' }}>
-                                  {name.split(' ')[0]}
+                                <span key={idx} style={{ fontSize: '9px', background: 'rgba(255,255,255,0.05)', padding: '2px 6px', borderRadius: '4px', color: 'var(--text-secondary)' }}>
+                                  {displayName.split(' ')[0]}
                                 </span>
                               );
                             })}
@@ -3047,7 +3112,18 @@ export default function App() {
                         <div className="vote-actions">
                           <span className="votes-count">{v.votes.length} Votes</span>
                           <button 
-                            className={`btn btn-sm ${v.votes.includes('mem-1') ? 'btn-primary' : 'btn-secondary'}`}
+                            className={`btn btn-sm ${v.votes.some(val => {
+                              let name = val;
+                              if (val === 'mem-1' || (currentUser && val === currentUser.id)) {
+                                name = settings.userName;
+                              } else {
+                                const found = group.members.find(m => m.id === val);
+                                if (found) {
+                                  name = found.name;
+                                }
+                              }
+                              return name.replace(/\s*\(You\)$/i, '').trim().toLowerCase() === settings.userName.trim().toLowerCase();
+                            }) ? 'btn-primary' : 'btn-secondary'}`}
                             onClick={() => handleVote(v.city)}
                           >
                             Vote
