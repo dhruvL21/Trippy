@@ -283,12 +283,45 @@ export default function App() {
     return typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'default';
   });
 
+  const showNotification = useCallback((title: string, options?: NotificationOptions) => {
+    if (notificationPermission === 'granted') {
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.ready.then(registration => {
+          registration.showNotification(title, {
+            ...options,
+            badge: '/favicon.svg'
+          });
+        }).catch(err => {
+          console.error("Failed to show notification via Service Worker, falling back:", err);
+          try {
+            new Notification(title, options);
+          } catch (e) {
+            console.error("Failed fallback notification:", e);
+          }
+        });
+      } else {
+        try {
+          new Notification(title, options);
+        } catch (e) {
+          console.error("Failed window notification:", e);
+        }
+      }
+    }
+  }, [notificationPermission]);
+
   const handleRequestNotificationPermission = () => {
     if (typeof window !== 'undefined' && 'Notification' in window) {
       Notification.requestPermission().then(permission => {
         setNotificationPermission(permission);
         if (permission === 'granted') {
           alert("Notifications enabled successfully! 🔔");
+          // Immediately trigger a test notification to ensure it works
+          setTimeout(() => {
+            showNotification("Notifications Enabled! 🔔", {
+              body: "You will now receive alerts for chat messages and expenses.",
+              icon: logoImg
+            });
+          }, 300);
         }
       });
     }
@@ -414,6 +447,19 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('trippy_is_guest', String(isGuest));
   }, [isGuest]);
+
+  // Register Service Worker for mobile notification support
+  useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js')
+        .then(reg => {
+          console.log('Service Worker registered successfully:', reg.scope);
+        })
+        .catch(err => {
+          console.error('Service Worker registration failed:', err);
+        });
+    }
+  }, []);
 
   const broadcastGroupUpdate = useCallback((type: string, data: any, targetGroupId?: string) => {
     const activeGroupId = targetGroupId || latestGroupRef.current?.id;
@@ -751,19 +797,15 @@ export default function App() {
           case 'chat': {
             const chatMsg = update.data;
             
-            // Trigger desktop notification if message is from someone else
+            // Trigger desktop/mobile notification if message is from someone else
             const cleanSender = chatMsg.sender.replace(/\s*\(You\)$/i, '').trim();
             const isMe = cleanSender.toLowerCase() === settings.userName.trim().toLowerCase() || chatMsg.sender.includes('(You)');
             
-            if (!isMe && notificationPermission === 'granted') {
-              try {
-                new Notification(`New message from ${cleanSender} 💬`, {
-                  body: chatMsg.text,
-                  icon: logoImg
-                });
-              } catch (err) {
-                console.error("Failed to trigger push notification:", err);
-              }
+            if (!isMe) {
+              showNotification(`New message from ${cleanSender} 💬`, {
+                body: chatMsg.text,
+                icon: logoImg
+              });
             }
 
             setGroup(prev => {
@@ -942,15 +984,11 @@ export default function App() {
               const cleanPaidBy = newExp.paidBy.replace(/\s*\(You\)$/i, '').trim();
               const isMe = cleanPaidBy.toLowerCase() === settings.userName.trim().toLowerCase();
               
-              if (!isMe && notificationPermission === 'granted') {
-                try {
-                  new Notification(`New Expense Added 💸`, {
-                    body: `${cleanPaidBy} added "${newExp.title}" - ₹${newExp.amount}`,
-                    icon: logoImg
-                  });
-                } catch (err) {
-                  console.error("Failed to trigger push notification for expense:", err);
-                }
+              if (!isMe) {
+                showNotification(`New Expense Added 💸`, {
+                  body: `${cleanPaidBy} added "${newExp.title}" - ₹${newExp.amount}`,
+                  icon: logoImg
+                });
               }
             }
 
@@ -980,7 +1018,7 @@ export default function App() {
     return () => {
       eventSource.close();
     };
-  }, [group.id, isGuest, currentUser?.id, settings.userName, settings.userUpi, broadcastGroupUpdate, notificationPermission]);
+  }, [group.id, isGuest, currentUser?.id, settings.userName, settings.userUpi, broadcastGroupUpdate, showNotification]);
 
   // Scroll chats to bottom
   useEffect(() => {
