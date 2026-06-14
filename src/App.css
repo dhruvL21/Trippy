@@ -189,10 +189,16 @@
     width: 40px;
     height: 40px;
     border-radius: 10px;
-    transition: background 0.2s ease;
+    transition: background 0.2s ease, transform 0.2s ease;
   }
   .mobile-menu-toggle:hover {
     background: var(--bg-surface-hover);
+  }
+  .mobile-menu-toggle:active {
+    transform: scale(0.9);
+  }
+  .mobile-menu-toggle svg {
+    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
   }
   .sidebar-nav {
     position: fixed;
@@ -208,11 +214,13 @@
     padding: 20px;
     box-sizing: border-box;
     transform: translateY(-150%);
-    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    opacity: 0;
+    transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease;
     z-index: 99;
   }
   .sidebar-nav.mobile-open {
     transform: translateY(0);
+    opacity: 1;
   }
   .nav-links {
     flex-direction: column;
@@ -228,7 +236,18 @@
     box-sizing: border-box;
     font-size: 14px;
     white-space: nowrap;
+    opacity: 0;
   }
+  .sidebar-nav.mobile-open .nav-item {
+    animation: slideUpFade 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+  .sidebar-nav.mobile-open .nav-item:nth-child(1) { animation-delay: 0.05s; }
+  .sidebar-nav.mobile-open .nav-item:nth-child(2) { animation-delay: 0.1s; }
+  .sidebar-nav.mobile-open .nav-item:nth-child(3) { animation-delay: 0.15s; }
+  .sidebar-nav.mobile-open .nav-item:nth-child(4) { animation-delay: 0.2s; }
+  .sidebar-nav.mobile-open .nav-item:nth-child(5) { animation-delay: 0.25s; }
+  .sidebar-nav.mobile-open .nav-item:nth-child(6) { animation-delay: 0.3s; }
+
   .mobile-profile-drawer {
     display: flex;
     align-items: center;
@@ -237,6 +256,11 @@
     padding-top: 16px;
     border-top: 1px solid var(--border);
     width: 100%;
+    opacity: 0;
+  }
+  .sidebar-nav.mobile-open .mobile-profile-drawer {
+    animation: slideUpFade 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    animation-delay: 0.35s;
   }
   .mobile-profile-drawer .avatar {
     width: 36px;
@@ -254,6 +278,16 @@
     font-size: 14px;
     font-weight: 600;
     color: var(--text-primary);
+  }
+  @keyframes slideUpFade {
+    from {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
   .main-content {
     margin-left: 0;

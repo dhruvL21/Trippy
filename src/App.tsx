@@ -98,9 +98,7 @@ export default function App() {
     return localStorage.getItem('trippy_is_guest') === 'true';
   });
 
-  const [activeTab, setActiveTab] = useState<'planner' | 'safety' | 'group' | 'expenses' | 'chatbot' | 'settings'>(() => {
-    return (localStorage.getItem('trippy_active_tab') as 'planner' | 'safety' | 'group' | 'expenses' | 'chatbot' | 'settings') || 'planner';
-  });
+  const [activeTab, setActiveTab] = useState<'planner' | 'safety' | 'group' | 'expenses' | 'chatbot' | 'settings'>('planner');
 
   const [settings, setSettings] = useState<AppSettings>(() => {
     const saved = localStorage.getItem('trippy_settings');
@@ -239,8 +237,8 @@ export default function App() {
 
   // --- Sync storage changes ---
   useEffect(() => {
-    localStorage.setItem('trippy_active_tab', activeTab);
-  }, [activeTab]);
+    localStorage.removeItem('trippy_active_tab');
+  }, []);
 
   useEffect(() => {
     localStorage.setItem('trippy_settings', JSON.stringify(settings));
