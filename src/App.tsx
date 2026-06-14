@@ -1641,53 +1641,6 @@ export default function App() {
 
     // Broadcast message over ntfy
     broadcastGroupUpdate('chat', myMessage);
-
-    // Trigger mock group reply after 2 seconds to feel live, but only if there are other members
-    setTimeout(() => {
-      setGroup(prev => {
-        const peerMembers = prev.members.filter(m => {
-          const cleanMName = m.name.replace(/\s*\(You\)$/i, '').trim().toLowerCase();
-          const cleanLoc = settings.userName.trim().toLowerCase();
-          return cleanMName !== cleanLoc;
-        });
-        if (peerMembers.length === 0) return prev;
-        const randomPeer = peerMembers[Math.floor(Math.random() * peerMembers.length)];
-
-        const peerReplies = [
-          "Sounds like a plan! Let's double check standard ticket prices.",
-          "Nice! I will add that to my tracking notes.",
-          "UPI works there, right? Don't want to carry too much cash.",
-          "Perfect. I can handle the scooter booking once we arrive.",
-          "Can we check if there are any entry fees for that fort?",
-          "Awesome! I'm packing my powerbank now."
-        ];
-        const randomReply = peerReplies[Math.floor(Math.random() * peerReplies.length)];
-
-        const peerMessage: ChatMessage = {
-          id: generateId(),
-          sender: randomPeer.name.replace(/\s*\(You\)$/i, ''),
-          text: randomReply,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        };
-
-        // Also broadcast the simulated peer message to other real members so they see the simulated activity!
-        const cleanTopic = `trippy-${prev.id.replace(/[^a-zA-Z0-9-_]/g, '')}`;
-        fetch(`https://ntfy.sh/${cleanTopic}`, {
-          method: 'POST',
-          body: JSON.stringify({
-            type: 'chat',
-            data: peerMessage,
-            senderId: 'simulated-peer',
-            senderName: randomPeer.name
-          })
-        }).catch(err => console.error(err));
-
-        return {
-          ...prev,
-          chatHistory: [...prev.chatHistory, peerMessage]
-        };
-      });
-    }, 2000);
   };
 
   // Expense Handlers
@@ -3002,7 +2955,7 @@ export default function App() {
                 <div className="glass-card" style={{ display: 'flex', flexDirection: 'column' }}>
                   <h3>Group Live Chat</h3>
                   <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '16px', marginTop: '4px' }}>
-                    Brainstorm with peers. Sends simulated responses.
+                    Brainstorm with peers and coordinate plans in real-time.
                   </p>
 
                   <div className="chat-container" style={{ height: '250px' }}>
