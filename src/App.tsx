@@ -565,6 +565,14 @@ export default function App() {
     if (isDpaste) {
       try {
         const decoded = await fetchGroupFromDpaste(dpasteCode);
+        
+        // Safety Check: block the admin/host from joining their own group again
+        if (decoded.group && decoded.group.id === group.id) {
+          alert("You are already the host/admin of this group! 👥");
+          setInviteLinkInput('');
+          return;
+        }
+
         performJoinGroup(decoded);
         setInviteLinkInput('');
         alert(`Successfully joined group trip "${decoded.group?.name || 'Vacation'}" via invite code! 👥✈️`);
@@ -588,6 +596,14 @@ export default function App() {
         }
         
         const decoded = JSON.parse(decodeURIComponent(atob(base64Data)));
+        
+        // Safety Check: block the admin/host from joining their own group again
+        if (decoded.group && decoded.group.id === group.id) {
+          alert("You are already the host/admin of this group! 👥");
+          setInviteLinkInput('');
+          return;
+        }
+
         performJoinGroup(decoded);
         setInviteLinkInput('');
         alert(`Successfully joined group trip "${decoded.group?.name || 'Vacation'}"! 👥✈️`);
