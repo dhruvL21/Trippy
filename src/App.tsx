@@ -23,6 +23,8 @@ import {
 import { AIService } from './services/ai';
 import Auth from './components/Auth';
 import LandingPage from './components/LandingPage';
+import { checkCognitoSession, logoutCognito } from './services/cognito';
+import { Hub } from 'aws-amplify/utils';
 import type { Trip, Group, Member, ChecklistItem, ChatMessage, Expense, SafetyReport, AppSettings, User } from './types';
 import './App.css';
 import logoImg from './assets/logo.png';
@@ -31,6 +33,26 @@ const generateId = () => Math.random().toString(36).substring(2, 9);
 
 const fetchGroupFromDpaste = async (pasteId: string) => {
   const cleanId = pasteId.replace('.txt', '').trim();
+  
+  // Try fetching from ntfy.sh cache first (CORS-friendly, valid SSL)
+  try {
+    const res = await fetch(`https://ntfy.sh/trippy-share-${cleanId}/json?poll=1`);
+    if (res.ok) {
+      const text = await res.text();
+      const lines = text.trim().split('\n');
+      if (lines.length > 0 && lines[0]) {
+        const lastLine = lines[lines.length - 1];
+        const ntfyMessage = JSON.parse(lastLine);
+        if (ntfyMessage && ntfyMessage.message) {
+          return JSON.parse(ntfyMessage.message);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("Failed to retrieve invite data from ntfy.sh cache, falling back:", err);
+  }
+
+  // Fallback to dpaste.com in case it is ever fixed/accessible
   const res = await fetch(`https://dpaste.com/${cleanId}.txt`);
   if (!res.ok) {
     throw new Error('Failed to retrieve invite data. The code may have expired or is incorrect.');
@@ -351,6 +373,7 @@ export default function App() {
 
   // --- OAuth Callback Redirect Parser ---
   useEffect(() => {
+    // Handle Google/Apple hash parameters
     const hash = window.location.hash;
     if (hash.includes('access_token=')) {
       const params = new URLSearchParams(hash.substring(1));
@@ -1165,26 +1188,16 @@ export default function App() {
       };
       const payload = JSON.stringify(shareData);
       
-      const response = await fetch('https://dpaste.com/api/v2/', {
+      const code = generateId();
+      
+      // Publish state to ntfy.sh cache topic (CORS-friendly, valid SSL)
+      const response = await fetch(`https://ntfy.sh/trippy-share-${code}`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: new URLSearchParams({
-          content: payload,
-          expiry_days: '1',
-          syntax: 'json'
-        })
+        body: payload
       });
       
       if (!response.ok) {
-        throw new Error('Failed to generate invite code');
-      }
-      
-      const pasteUrl = await response.text();
-      const code = pasteUrl.trim().split('/').pop();
-      if (!code) {
-        throw new Error('Could not parse invite code from response');
+        throw new Error('Failed to generate invite code on ntfy.sh');
       }
       
       setGeneratedGroupCode(code);
@@ -1237,6 +1250,9 @@ export default function App() {
 
   const handleLogout = () => {
     if (confirm('Are you sure you want to log out?')) {
+      if (currentUser?.authProvider === 'cognito') {
+        logoutCognito().catch(err => console.error('Failed to log out from Cognito:', err));
+      }
       setCurrentUser(null);
       setIsGuest(false);
       
@@ -1301,6 +1317,31 @@ export default function App() {
       alert('Logged out successfully.');
     }
   };
+
+  // --- Cognito Session check on mount ---
+  const resolveUserSession = useCallback(() => {
+    checkCognitoSession().then(user => {
+      if (user) {
+        handleAuthSuccess(user);
+      }
+    }).catch(err => {
+      console.error('Failed to resolve Cognito user session:', err);
+    });
+  }, [handleAuthSuccess]);
+
+  useEffect(() => {
+    resolveUserSession();
+
+    const unsubscribe = Hub.listen('auth', ({ payload }) => {
+      if (payload.event === 'signInWithRedirect') {
+        resolveUserSession();
+      } else if (payload.event === 'signInWithRedirect_failure') {
+        console.error('Cognito sign-in redirect flow failure:', payload.data);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [resolveUserSession]);
 
   const toggleInterest = (id: string) => {
     setSelectedInterests(prev => 

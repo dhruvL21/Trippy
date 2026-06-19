@@ -1350,6 +1350,11 @@ input:focus, select:focus, textarea:focus {
   border-color: var(--border-hover);
 }
 
+.cognito-btn:hover {
+  background: rgba(255, 153, 0, 0.08) !important;
+  border-color: rgba(255, 153, 0, 0.4) !important;
+}
+
 .social-btn svg {
   flex-shrink: 0;
 }

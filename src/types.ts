@@ -133,5 +133,5 @@ export interface User {
   name: string;
   email: string;
   avatarUrl?: string;
-  authProvider: 'email' | 'google' | 'apple';
+  authProvider: 'email' | 'google' | 'apple' | 'cognito';
 }

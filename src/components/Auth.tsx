@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Mail, Lock, User as UserIcon, Compass } from 'lucide-react';
+import { Mail, Lock, User as UserIcon, Compass, Key } from 'lucide-react';
+import { signUp, signIn, getCurrentUser, confirmSignUp, fetchAuthSession } from 'aws-amplify/auth';
 import type { User } from '../types';
 import logoImg from '../assets/logo.png';
 
@@ -14,8 +15,11 @@ export default function Auth({ onAuthSuccess, onSkip }: AuthProps) {
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [error, setError] = useState('');
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [otp, setOtp] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
@@ -27,56 +31,103 @@ export default function Auth({ onAuthSuccess, onSkip }: AuthProps) {
       return;
     }
 
-    if (!isLogin && !name.trim()) {
-      setError('Please enter your name.');
+    if (isVerifying) {
+      const trimmedOtp = otp.trim();
+      if (!trimmedOtp) {
+        setError('Please enter the verification code.');
+        return;
+      }
+
+      setLoading(true);
+      try {
+        await confirmSignUp({
+          username: trimmedEmail,
+          confirmationCode: trimmedOtp
+        });
+        
+        // Auto sign in user after successful email OTP confirmation
+        const signInResult = await signIn({
+          username: trimmedEmail,
+          password: trimmedPassword
+        });
+
+        if (signInResult.isSignedIn) {
+          const user = await getCurrentUser();
+          const session = await fetchAuthSession();
+          const idToken = session.tokens?.idToken?.payload;
+
+          onAuthSuccess({
+            id: 'c-' + user.userId,
+            name: (idToken?.name as string) || (idToken?.given_name as string) || trimmedEmail.split('@')[0] || user.username || 'User',
+            email: (idToken?.email as string) || trimmedEmail,
+            authProvider: 'cognito'
+          });
+        } else {
+          setError('Account verified, but auto-login failed. Please sign in manually.');
+          setIsVerifying(false);
+          setIsLogin(true);
+        }
+      } catch (err: any) {
+        setError(err.message || 'Verification failed. Please check the code.');
+      } finally {
+        setLoading(false);
+      }
       return;
     }
 
-    // Load local registered users database
-    const savedUsersStr = localStorage.getItem('trippy_registered_users');
-    const savedUsers = savedUsersStr ? JSON.parse(savedUsersStr) : [];
-
     if (isLogin) {
-      // Find matching user credentials
-      const foundUser = savedUsers.find(
-        (u: any) => u.email.toLowerCase() === trimmedEmail.toLowerCase() && u.password === trimmedPassword
-      );
-      
-      if (foundUser) {
-        onAuthSuccess({
-          id: foundUser.id,
-          name: foundUser.name,
-          email: foundUser.email,
-          authProvider: 'email'
+      setLoading(true);
+      try {
+        const signInResult = await signIn({
+          username: trimmedEmail,
+          password: trimmedPassword
         });
-      } else {
-        setError('Invalid email or password. New user? Please register first.');
+
+        if (signInResult.isSignedIn) {
+          const user = await getCurrentUser();
+          const session = await fetchAuthSession();
+          const idToken = session.tokens?.idToken?.payload;
+
+          onAuthSuccess({
+            id: 'c-' + user.userId,
+            name: (idToken?.name as string) || (idToken?.given_name as string) || trimmedEmail.split('@')[0] || user.username || 'User',
+            email: (idToken?.email as string) || trimmedEmail,
+            authProvider: 'cognito'
+          });
+        } else if (signInResult.nextStep.signInStep === 'CONFIRM_SIGN_UP') {
+          setIsVerifying(true);
+          alert('Account verification pending. We have sent a code to your email.');
+        } else {
+          setError(`Further action required: ${signInResult.nextStep.signInStep}`);
+        }
+      } catch (err: any) {
+        setError(err.message || 'Incorrect email or password.');
+      } finally {
+        setLoading(false);
       }
     } else {
-      // Check for duplicate registration
-      const emailExists = savedUsers.some(
-        (u: any) => u.email.toLowerCase() === trimmedEmail.toLowerCase()
-      );
-      
-      if (emailExists) {
-        setError('Email is already registered. Please login instead.');
-      } else {
-        const newUser = {
-          id: Math.random().toString(36).substring(2, 9),
-          name: name.trim(),
-          email: trimmedEmail,
-          password: trimmedPassword
-        };
-        
-        savedUsers.push(newUser);
-        localStorage.setItem('trippy_registered_users', JSON.stringify(savedUsers));
-        
-        onAuthSuccess({
-          id: newUser.id,
-          name: newUser.name,
-          email: newUser.email,
-          authProvider: 'email'
+      if (!name.trim()) {
+        setError('Please enter your name.');
+        return;
+      }
+
+      setLoading(true);
+      try {
+        await signUp({
+          username: trimmedEmail,
+          password: trimmedPassword,
+          options: {
+            userAttributes: {
+              name: name.trim(),
+              email: trimmedEmail
+            }
+          }
         });
+        setIsVerifying(true);
+      } catch (err: any) {
+        setError(err.message || 'Registration failed. Check password requirements.');
+      } finally {
+        setLoading(false);
       }
     }
   };
@@ -122,95 +173,132 @@ export default function Auth({ onAuthSuccess, onSkip }: AuthProps) {
         </div>
 
         {/* Tab Selector */}
-        <div className="auth-tabs">
-          <button 
-            className={`auth-tab ${isLogin ? 'active' : ''}`}
-            onClick={() => { setIsLogin(true); setError(''); }}
-          >
-            Login
-          </button>
-          <button 
-            className={`auth-tab ${!isLogin ? 'active' : ''}`}
-            onClick={() => { setIsLogin(false); setError(''); }}
-          >
-            Register
-          </button>
-        </div>
+        {!isVerifying && (
+          <div className="auth-tabs">
+            <button 
+              className={`auth-tab ${isLogin ? 'active' : ''}`}
+              onClick={() => { setIsLogin(true); setError(''); }}
+            >
+              Login
+            </button>
+            <button 
+              className={`auth-tab ${!isLogin ? 'active' : ''}`}
+              onClick={() => { setIsLogin(false); setError(''); }}
+            >
+              Register
+            </button>
+          </div>
+        )}
 
         {error && <div className="auth-error">{error}</div>}
 
-        <form onSubmit={handleSubmit} className="auth-form">
-          {!isLogin && (
+        {isVerifying ? (
+          <form onSubmit={handleSubmit} className="auth-form">
+            <p style={{ color: 'var(--text-secondary)', fontSize: '13px', textAlign: 'left', lineHeight: '1.5', marginBottom: '8px' }}>
+              We've sent a 6-digit confirmation code to <strong>{email}</strong>. Please enter it below to verify your email.
+            </p>
             <div className="input-group">
-              <span className="input-icon"><UserIcon size={18} /></span>
+              <span className="input-icon"><Key size={18} /></span>
               <input 
                 type="text" 
-                placeholder="Full Name" 
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                required={!isLogin}
+                placeholder="Verification Code (OTP)" 
+                value={otp}
+                onChange={(e) => setOtp(e.target.value)}
+                required
               />
             </div>
-          )}
 
-          <div className="input-group">
-            <span className="input-icon"><Mail size={18} /></span>
-            <input 
-              type="email" 
-              placeholder="Email Address" 
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-            />
-          </div>
+            <button type="submit" className="btn btn-primary auth-submit-btn" disabled={loading}>
+              {loading ? 'Verifying...' : 'Verify & Log In'}
+            </button>
 
-          <div className="input-group">
-            <span className="input-icon"><Lock size={18} /></span>
-            <input 
-              type="password" 
-              placeholder="Password" 
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
-          </div>
+            <button 
+              type="button" 
+              className="auth-guest-btn" 
+              onClick={() => { setIsVerifying(false); setError(''); }}
+              style={{ marginTop: '8px' }}
+            >
+              Cancel & Go Back
+            </button>
+          </form>
+        ) : (
+          <form onSubmit={handleSubmit} className="auth-form">
+            {!isLogin && (
+              <div className="input-group">
+                <span className="input-icon"><UserIcon size={18} /></span>
+                <input 
+                  type="text" 
+                  placeholder="Full Name" 
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  required={!isLogin}
+                />
+              </div>
+            )}
 
-          <button type="submit" className="btn btn-primary auth-submit-btn">
-            {isLogin ? 'Login Account' : 'Register Account'}
-          </button>
-        </form>
+            <div className="input-group">
+              <span className="input-icon"><Mail size={18} /></span>
+              <input 
+                type="email" 
+                placeholder="Email Address" 
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+              />
+            </div>
 
-        <div className="auth-divider">
-          <span>Or sign in with</span>
-        </div>
+            <div className="input-group">
+              <span className="input-icon"><Lock size={18} /></span>
+              <input 
+                type="password" 
+                placeholder="Password" 
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+            </div>
 
-        {/* Social Buttons */}
-        <div className="social-buttons">
-          <button 
-            className="social-btn google-btn"
-            onClick={handleGoogleRedirect}
-            type="button"
-          >
-            <svg viewBox="0 0 24 24" width="20" height="20">
-              <path fill="#EA4335" d="M12 5.04c1.66 0 3.2.57 4.38 1.69l3.27-3.27C17.68 1.54 14.98 1 12 1 7.35 1 3.37 3.67 1.39 7.56l3.85 2.99c.9-2.7 3.42-4.51 6.76-4.51z"/>
-              <path fill="#4285F4" d="M23.49 12.27c0-.81-.07-1.59-.2-2.34H12v4.43h6.46c-.28 1.48-1.11 2.73-2.37 3.58l3.69 2.87c2.16-1.99 3.41-4.92 3.41-8.54z"/>
-              <path fill="#FBBC05" d="M5.24 10.55c-.23-.69-.36-1.43-.36-2.2s.13-1.51.36-2.2L1.39 3.16C.5 4.93 0 6.91 0 9s.5 4.07 1.39 5.84l3.85-3.29z"/>
-              <path fill="#34A853" d="M12 23c3.24 0 5.97-1.07 7.96-2.91l-3.69-2.87c-1.02.68-2.33 1.09-3.96 1.09-3.34 0-6.17-2.14-7.18-5.02L1.28 16.4C3.26 20.31 7.31 23 12 23z"/>
-            </svg>
-            <span>Google</span>
-          </button>
+            <button type="submit" className="btn btn-primary auth-submit-btn" disabled={loading}>
+              {loading ? 'Please wait...' : (isLogin ? 'Login Account' : 'Register Account')}
+            </button>
+          </form>
+        )}
 
-          <button 
-            className="social-btn apple-btn"
-            onClick={handleAppleRedirect}
-            type="button"
-          >
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-              <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M15.97 4.17c.66-.81 1.11-1.93.99-3.06-1 .04-2.21.67-2.93 1.49-.62.69-1.16 1.84-1.01 2.96 1.12.09 2.27-.57 2.95-1.39z"/>
-            </svg>
-            <span>Apple</span>
-          </button>
-        </div>
+        {!isVerifying && (
+          <>
+            <div className="auth-divider">
+              <span>Or sign in with</span>
+            </div>
+
+            {/* Social Buttons */}
+            <div className="social-buttons">
+              <button 
+                className="social-btn google-btn"
+                onClick={handleGoogleRedirect}
+                type="button"
+              >
+                <svg viewBox="0 0 24 24" width="20" height="20">
+                  <path fill="#EA4335" d="M12 5.04c1.66 0 3.2.57 4.38 1.69l3.27-3.27C17.68 1.54 14.98 1 12 1 7.35 1 3.37 3.67 1.39 7.56l3.85 2.99c.9-2.7 3.42-4.51 6.76-4.51z"/>
+                  <path fill="#4285F4" d="M23.49 12.27c0-.81-.07-1.59-.2-2.34H12v4.43h6.46c-.28 1.48-1.11 2.73-2.37 3.58l3.69 2.87c2.16-1.99 3.41-4.92 3.41-8.54z"/>
+                  <path fill="#FBBC05" d="M5.24 10.55c-.23-.69-.36-1.43-.36-2.2s.13-1.51.36-2.2L1.39 3.16C.5 4.93 0 6.91 0 9s.5 4.07 1.39 5.84l3.85-3.29z"/>
+                  <path fill="#34A853" d="M12 23c3.24 0 5.97-1.07 7.96-2.91l-3.69-2.87c-1.02.68-2.33 1.09-3.96 1.09-3.34 0-6.17-2.14-7.18-5.02L1.28 16.4C3.26 20.31 7.31 23 12 23z"/>
+                </svg>
+                <span>Google</span>
+              </button>
+
+              <button 
+                className="social-btn apple-btn"
+                onClick={handleAppleRedirect}
+                type="button"
+              >
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                  <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M15.97 4.17c.66-.81 1.11-1.93.99-3.06-1 .04-2.21.67-2.93 1.49-.62.69-1.16 1.84-1.01 2.96 1.12.09 2.27-.57 2.95-1.39z"/>
+                </svg>
+                <span>Apple</span>
+              </button>
+            </div>
+          </>
+        )}
 
         {/* Skip option */}
         <button 
