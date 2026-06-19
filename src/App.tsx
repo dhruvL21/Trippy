@@ -1211,7 +1211,7 @@ export default function App() {
     }
   };
 
-  const handleAuthSuccess = (user: User) => {
+  const handleAuthSuccess = useCallback((user: User) => {
     setCurrentUser(user);
     setIsGuest(false);
     setActiveTab('planner');
@@ -1244,9 +1244,7 @@ export default function App() {
         checklist: updatedChecklist
       };
     });
-
-    alert(`Successfully signed in as ${user.name}! ✈️`);
-  };
+  }, []);
 
   const handleLogout = () => {
     if (confirm('Are you sure you want to log out?')) {
