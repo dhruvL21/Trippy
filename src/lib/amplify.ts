@@ -4,7 +4,7 @@ Amplify.configure({
   Auth: {
     Cognito: {
       userPoolId: 'ap-south-1_aZbUeVRjX',
-      userPoolClientId: '1qj64pfbco37mgg1eln9pmamqb',
+      userPoolClientId: '3mis9f4oecir3ikk56fuun3vsf',
       signUpVerificationMethod: 'code',
     }
   }

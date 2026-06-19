@@ -25,6 +25,7 @@ export default function Auth({ onAuthSuccess, onSkip }: AuthProps) {
 
     const trimmedEmail = email.trim();
     const trimmedPassword = password.trim();
+    const usernameAlias = trimmedEmail.replace('@', '_at_').replace(/[^a-zA-Z0-9_]/g, '');
 
     if (!trimmedEmail || !trimmedPassword) {
       setError('Please fill out all fields.');
@@ -41,7 +42,7 @@ export default function Auth({ onAuthSuccess, onSkip }: AuthProps) {
       setLoading(true);
       try {
         await confirmSignUp({
-          username: trimmedEmail,
+          username: usernameAlias,
           confirmationCode: trimmedOtp
         });
 
@@ -114,7 +115,7 @@ export default function Auth({ onAuthSuccess, onSkip }: AuthProps) {
       setLoading(true);
       try {
         await signUp({
-          username: trimmedEmail,
+          username: usernameAlias,
           password: trimmedPassword,
           options: {
             userAttributes: {
@@ -217,10 +218,10 @@ export default function Auth({ onAuthSuccess, onSkip }: AuthProps) {
             <button
               type="button"
               className="auth-guest-btn"
-              onClick={() => { 
-                setIsVerifying(false); 
-                setIsLogin(true); 
-                setError(''); 
+              onClick={() => {
+                setIsVerifying(false);
+                setIsLogin(true);
+                setError('');
               }}
               style={{ marginTop: '8px', display: 'block', width: '100%', textAlign: 'center' }}
             >
