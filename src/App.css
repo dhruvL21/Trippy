@@ -1070,12 +1070,60 @@ input:focus, select:focus, textarea:focus {
   color: var(--primary) !important;
 }
 
+/* Print/screen utilities for itinerary printing */
+.print-only {
+  display: none;
+}
+
+.itinerary-day-section {
+  display: none;
+}
+
+.itinerary-day-section.active {
+  display: flex;
+}
+
 /* Print CSS Media query */
 @media print {
+  /* Override CSS color system variables for high contrast, clean white-bg printing */
+  :root {
+    --bg-base: #ffffff !important;
+    --bg-surface: #ffffff !important;
+    --bg-surface-glass: #ffffff !important;
+    --bg-surface-hover: #f8fafc !important;
+    
+    --text-primary: #0f172a !important;
+    --text-secondary: #334155 !important;
+    --text-muted: #64748b !important;
+    
+    --border: #cbd5e1 !important;
+    --border-hover: #94a3b8 !important;
+    
+    --primary: #6d28d9 !important;
+    --primary-hover: #4c1d95 !important;
+    --primary-light: #f5f3ff !important;
+    
+    --accent: #047857 !important;
+    --accent-light: #ecfdf5 !important;
+    
+    --warning: #b45309 !important;
+    --warning-light: #fffbeb !important;
+    
+    --danger: #be123c !important;
+    --danger-light: #fff1f2 !important;
+  }
+
+  /* Force background graphics rendering */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
   body {
     background: #ffffff !important;
-    color: #111111 !important;
-    font-size: 12pt !important;
+    color: #0f172a !important;
+    font-size: 11pt !important;
+    line-height: 1.4 !important;
   }
 
   /* Hide navigation, settings, chat, and form panels */
@@ -1083,7 +1131,7 @@ input:focus, select:focus, textarea:focus {
   .no-print,
   form,
   .btn,
-  .replanner-banner,
+  .replanner-buttons,
   .sidebar-footer,
   .day-selector,
   .settings-warning,
@@ -1108,12 +1156,16 @@ input:focus, select:focus, textarea:focus {
     max-width: 100% !important;
   }
 
-  .glass-card {
+  /* Remove glassy panels/cards styles in print */
+  .glass-card,
+  .glass-panel {
     background: none !important;
     border: none !important;
     box-shadow: none !important;
     padding: 0 !important;
     margin-bottom: 20px !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
   }
 
   /* Grid layout adjustments */
@@ -1121,30 +1173,121 @@ input:focus, select:focus, textarea:focus {
     display: block !important;
   }
 
+  /* Display and style the print-only trip header */
+  .print-only {
+    display: block !important;
+  }
+
+  .print-trip-header {
+    border-bottom: 3px double #334155 !important;
+    padding-bottom: 16px !important;
+    margin-bottom: 24px !important;
+  }
+
+  .print-main-title {
+    font-size: 22pt !important;
+    font-weight: 800 !important;
+    color: #0f172a !important;
+    margin: 0 0 12px 0 !important;
+    text-align: center !important;
+    text-transform: uppercase !important;
+    letter-spacing: 1px !important;
+  }
+
+  .print-trip-meta {
+    display: grid !important;
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 8px 24px !important;
+    font-size: 11pt !important;
+    color: #334155 !important;
+    margin-top: 12px !important;
+  }
+
+  .print-cost-title {
+    font-size: 14pt !important;
+    margin-bottom: 12px !important;
+    border-bottom: 1px solid #cbd5e1 !important;
+    padding-bottom: 6px !important;
+  }
+
+  /* Show all itinerary days with page breaks */
+  .itinerary-day-section {
+    display: flex !important;
+    flex-direction: column !important;
+    page-break-after: always !important;
+    margin-top: 16px !important;
+  }
+
+  .itinerary-day-section:last-child {
+    page-break-after: avoid !important;
+  }
+
+  /* Style replanner banner as a clean day heading */
+  .replanner-banner {
+    background: none !important;
+    border: none !important;
+    border-bottom: 2px solid #0f172a !important;
+    border-radius: 0 !important;
+    padding: 6px 0 !important;
+    margin-bottom: 16px !important;
+    display: block !important;
+  }
+
+  .replanner-text {
+    font-size: 14pt !important;
+    font-weight: bold !important;
+    color: #0f172a !important;
+  }
+
   /* Ensure timeline prints cleanly */
   .timeline {
-    border-left: 2px solid #ccc !important;
+    border-left: 2px solid #cbd5e1 !important;
+    margin-left: 10px !important;
+    padding-left: 20px !important;
   }
 
   .timeline-item {
     border: none !important;
     background: none !important;
     page-break-inside: avoid !important;
+    margin-bottom: 20px !important;
+    padding-bottom: 10px !important;
   }
 
   .timeline-dot {
-    background: #333 !important;
+    background: #0f172a !important;
+    left: -26px !important;
   }
 
-  .print-only {
-    display: block !important;
+  .timeline-title {
+    font-size: 12pt !important;
+    color: #0f172a !important;
   }
 
-  /* Adjust color indicators */
+  .timeline-time {
+    font-size: 10pt !important;
+    color: #475569 !important;
+  }
+
+  .timeline-desc {
+    font-size: 10pt !important;
+    color: #334155 !important;
+  }
+
+  /* Adjust badges and highlights */
   .badge {
-    border: 1px solid #333 !important;
-    color: #111 !important;
-    background: none !important;
+    border: 1px solid #cbd5e1 !important;
+    color: #0f172a !important;
+    background: #f1f5f9 !important;
+    font-size: 9pt !important;
+    padding: 2px 8px !important;
+    border-radius: 4px !important;
+  }
+
+  .highlight-pill {
+    background: #f8fafc !important;
+    border: 1px solid #e2e8f0 !important;
+    color: #0f172a !important;
   }
 }
 
