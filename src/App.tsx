@@ -1211,7 +1211,7 @@ export default function App() {
     }
   };
 
-  const handleAuthSuccess = (user: User) => {
+  const handleAuthSuccess = useCallback((user: User) => {
     setCurrentUser(user);
     setIsGuest(false);
     setActiveTab('planner');
@@ -1244,9 +1244,7 @@ export default function App() {
         checklist: updatedChecklist
       };
     });
-
-    alert(`Successfully signed in as ${user.name}! ✈️`);
-  };
+  }, []);
 
   const handleLogout = () => {
     if (confirm('Are you sure you want to log out?')) {
@@ -2319,7 +2317,7 @@ export default function App() {
 
         {/* Universal Mini Header showing active trip context */}
         {activeTrip ? (
-          <div className="glass-panel" style={{ padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+          <div className="glass-panel no-print" style={{ padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <div style={{ background: 'var(--primary-light)', padding: '10px', borderRadius: '10px', color: 'var(--primary-hover)' }}>
                 <MapPin size={20} />
@@ -2573,7 +2571,21 @@ export default function App() {
                         </button>
                       </div>
                     </div>
-                    <h3 className="print-only" style={{ marginBottom: '16px', display: 'none' }}>Trip Cost Breakdown</h3>
+                    
+                    {/* Print-only trip header */}
+                    <div className="print-only print-trip-header">
+                      <h1 className="print-main-title">✈️ Trippy Travel Itinerary</h1>
+                      <div className="print-trip-meta">
+                        <div><strong>Destination:</strong> {activeTrip.destination}</div>
+                        <div><strong>Source:</strong> {activeTrip.source}</div>
+                        <div><strong>Dates:</strong> {new Date(activeTrip.startDate).toLocaleDateString('en-IN', { dateStyle: 'medium' })} - {new Date(activeTrip.endDate).toLocaleDateString('en-IN', { dateStyle: 'medium' })}</div>
+                        <div><strong>Travelers:</strong> {activeTrip.travelers} Pax</div>
+                        <div><strong>Theme:</strong> {activeTrip.tripType}</div>
+                        <div><strong>Budget Limit:</strong> ₹{activeTrip.budgetLimit.toLocaleString('en-IN')}</div>
+                      </div>
+                    </div>
+
+                    <h3 className="print-only print-cost-title">Trip Cost Breakdown</h3>
                     
                     {/* SVG / Custom visual progress bar chart */}
                     <div className="budget-visualizer">
@@ -2631,11 +2643,15 @@ export default function App() {
                       ))}
                     </div>
 
-                    {/* Active Day Itinerary details */}
+                    {/* Day Itinerary details */}
                     {activeTrip.itinerary.map(day => {
-                      if (day.dayNumber !== activeItineraryDay) return null;
+                      const isActive = day.dayNumber === activeItineraryDay;
                       return (
-                        <div key={day.dayNumber} style={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
+                        <div 
+                          key={day.dayNumber} 
+                          className={`itinerary-day-section ${isActive ? 'active' : ''}`}
+                          style={{ flexGrow: 1, flexDirection: 'column' }}
+                        >
                           
                           {/* Replanner Action Trigger Bar */}
                           <div className="replanner-banner">
@@ -2738,22 +2754,25 @@ export default function App() {
                                 <div className="timeline-meta" style={{ marginTop: '12px', borderTop: '1px dashed var(--border)', paddingTop: '8px' }}>
                                   <span className="timeline-location">
                                     <MapPin size={12} />
-                                    {act.location ? (
-                                      <a 
-                                        href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(act.location + ', ' + activeTrip.destination)}`} 
-                                        target="_blank" 
-                                        rel="noopener noreferrer"
-                                        className="map-link no-print"
-                                        title="View on Google Maps"
-                                        style={{ color: 'var(--primary-hover)', textDecoration: 'underline', fontWeight: 500 }}
-                                      >
-                                        {act.location}
-                                      </a>
-                                    ) : (
-                                      <span>Local area</span>
-                                    )}
-                                    {/* Print-only fallback for location since links shouldn't look like styled text in print */}
-                                    <span className="print-only" style={{ display: 'none' }}>{act.location || 'Local area'}</span>
+                                    <span className="no-print">
+                                      {act.location ? (
+                                        <a 
+                                          href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(act.location + ', ' + activeTrip.destination)}`} 
+                                          target="_blank" 
+                                          rel="noopener noreferrer"
+                                          className="map-link"
+                                          title="View on Google Maps"
+                                          style={{ color: 'var(--primary-hover)', textDecoration: 'underline', fontWeight: 500 }}
+                                        >
+                                          {act.location}
+                                        </a>
+                                      ) : (
+                                        <span>Local area</span>
+                                      )}
+                                    </span>
+                                    <span className="print-only">
+                                      {act.location || 'Local area'}
+                                    </span>
                                   </span>
                                   <span className="timeline-cost" style={{ fontWeight: 600 }}>₹{act.cost}</span>
                                 </div>

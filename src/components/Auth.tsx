@@ -18,6 +18,7 @@ export default function Auth({ onAuthSuccess, onSkip }: AuthProps) {
   const [isVerifying, setIsVerifying] = useState(false);
   const [otp, setOtp] = useState('');
   const [loading, setLoading] = useState(false);
+  const [cognitoUsername, setCognitoUsername] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -114,13 +115,20 @@ export default function Auth({ onAuthSuccess, onSkip }: AuthProps) {
 
       setLoading(true);
       try {
+        const generatedUsername = trimmedEmail.replace(/[^a-zA-Z0-9]/g, '') + Math.random().toString(36).substring(2, 6);
+        setCognitoUsername(generatedUsername);
+        
         await signUp({
           username: usernameAlias,
           password: trimmedPassword,
           options: {
             userAttributes: {
               name: name.trim(),
-              email: trimmedEmail
+              email: trimmedEmail,
+              given_name: name.trim().split(' ')[0] || name.trim(),
+              phone_number: '+919876543210',
+              birthdate: '1990-01-01',
+              address: 'Not Specified'
             }
           }
         });
