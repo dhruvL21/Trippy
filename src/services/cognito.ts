@@ -19,7 +19,7 @@ export async function checkCognitoSession(): Promise<User | null> {
       };
     }
     return null;
-  } catch (error) {
+  } catch {
     return null;
   }
 }

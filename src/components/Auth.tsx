@@ -68,8 +68,8 @@ export default function Auth({ onAuthSuccess, onSkip }: AuthProps) {
           setIsVerifying(false);
           setIsLogin(true);
         }
-      } catch (err: any) {
-        setError(err.message || 'Verification failed. Please check the code.');
+      } catch (err) {
+        setError((err as Error).message || 'Verification failed. Please check the code.');
       } finally {
         setLoading(false);
       }
@@ -101,8 +101,8 @@ export default function Auth({ onAuthSuccess, onSkip }: AuthProps) {
         } else {
           setError(`Further action required: ${signInResult.nextStep.signInStep}`);
         }
-      } catch (err: any) {
-        setError(err.message || 'Incorrect email or password.');
+      } catch (err) {
+        setError((err as Error).message || 'Incorrect email or password.');
       } finally {
         setLoading(false);
       }
@@ -130,8 +130,8 @@ export default function Auth({ onAuthSuccess, onSkip }: AuthProps) {
           }
         });
         setIsVerifying(true);
-      } catch (err: any) {
-        setError(err.message || 'Registration failed. Check password requirements.');
+      } catch (err) {
+        setError((err as Error).message || 'Registration failed. Check password requirements.');
       } finally {
         setLoading(false);
       }
