@@ -1158,6 +1158,50 @@ export default function App() {
       .then(report => setSafetyReport(report))
       .catch(err => console.error(err));
       
+    // Initialize default expenses for this loaded trip
+    const updatedGroupMembers = [
+      { id: 'mem-1', name: `${settings.userName} (You)`, upi: settings.userUpi },
+      ...Array.from({ length: Math.max(0, Number(trip.travelers) - 1) }).map((_, i) => ({
+        id: `mem-gen-${i}`,
+        name: `Traveler ${i + 2}`,
+        upi: `traveler${i + 2}@upi`
+      }))
+    ];
+
+    const initialExpenses: Expense[] = [];
+    const categories: ('accommodation' | 'transport' | 'food' | 'sightseeing' | 'shopping' | 'emergency')[] = [
+      'accommodation',
+      'transport',
+      'food',
+      'sightseeing',
+      'shopping',
+      'emergency'
+    ];
+
+    categories.forEach((cat, index) => {
+      const amount = trip.costBreakdown[cat];
+      if (amount > 0) {
+        let title = '';
+        if (cat === 'accommodation') title = 'Planned Accommodation';
+        else if (cat === 'transport') title = `Planned Transport (${trip.transportPreference})`;
+        else if (cat === 'food') title = 'Planned Food & Dining';
+        else if (cat === 'sightseeing') title = 'Planned Sightseeing & Activities';
+        else if (cat === 'shopping') title = 'Planned Shopping';
+        else if (cat === 'emergency') title = 'Planned Emergency Buffer';
+
+        initialExpenses.push({
+          id: `init-exp-${index + 1}`,
+          title,
+          amount,
+          paidBy: `${settings.userName} (You)`,
+          splitWith: updatedGroupMembers.map(m => m.name),
+          category: cat,
+          date: trip.startDate
+        });
+      }
+    });
+    setExpenses(initialExpenses);
+      
     alert(`Loaded active trip to ${trip.destination}!`);
   };
 
@@ -1411,32 +1455,38 @@ export default function App() {
       }));
 
       // Initialize default expenses for this new trip
-      const roomCosts = trip.costBreakdown.accommodation;
-      const transCosts = trip.costBreakdown.transport;
       const initialExpenses: Expense[] = [];
-      
-      if (roomCosts > 0) {
-        initialExpenses.push({
-          id: 'init-exp-1',
-          title: 'Accommodation Stay Charges',
-          amount: Math.round(roomCosts * 0.7), // part pre-paid
-          paidBy: `${settings.userName} (You)`,
-          splitWith: updatedGroupMembers.map(m => m.name),
-          category: 'accommodation',
-          date: startDate
-        });
-      }
-      if (transCosts > 0) {
-        initialExpenses.push({
-          id: 'init-exp-2',
-          title: `Intercity Travel (${transportPreference})`,
-          amount: transCosts,
-          paidBy: `${settings.userName} (You)`,
-          splitWith: updatedGroupMembers.map(m => m.name),
-          category: 'transport',
-          date: startDate
-        });
-      }
+      const categories: ('accommodation' | 'transport' | 'food' | 'sightseeing' | 'shopping' | 'emergency')[] = [
+        'accommodation',
+        'transport',
+        'food',
+        'sightseeing',
+        'shopping',
+        'emergency'
+      ];
+
+      categories.forEach((cat, index) => {
+        const amount = trip.costBreakdown[cat];
+        if (amount > 0) {
+          let title = '';
+          if (cat === 'accommodation') title = 'Planned Accommodation';
+          else if (cat === 'transport') title = `Planned Transport (${transportPreference})`;
+          else if (cat === 'food') title = 'Planned Food & Dining';
+          else if (cat === 'sightseeing') title = 'Planned Sightseeing & Activities';
+          else if (cat === 'shopping') title = 'Planned Shopping';
+          else if (cat === 'emergency') title = 'Planned Emergency Buffer';
+
+          initialExpenses.push({
+            id: `init-exp-${index + 1}`,
+            title,
+            amount,
+            paidBy: `${settings.userName} (You)`,
+            splitWith: updatedGroupMembers.map(m => m.name),
+            category: cat,
+            date: startDate
+          });
+        }
+      });
       setExpenses(initialExpenses);
 
     } catch (err) {
@@ -1500,6 +1550,41 @@ export default function App() {
       };
 
       setActiveTrip(updatedTrip);
+      
+      // Update expenses to match replanned breakdown
+      const initialExpenses: Expense[] = [];
+      const categories: ('accommodation' | 'transport' | 'food' | 'sightseeing' | 'shopping' | 'emergency')[] = [
+        'accommodation',
+        'transport',
+        'food',
+        'sightseeing',
+        'shopping',
+        'emergency'
+      ];
+
+      categories.forEach((cat, index) => {
+        const amount = updatedTrip.costBreakdown[cat];
+        if (amount > 0) {
+          let title = '';
+          if (cat === 'accommodation') title = 'Planned Accommodation';
+          else if (cat === 'transport') title = `Planned Transport (${updatedTrip.transportPreference})`;
+          else if (cat === 'food') title = 'Planned Food & Dining';
+          else if (cat === 'sightseeing') title = 'Planned Sightseeing & Activities';
+          else if (cat === 'shopping') title = 'Planned Shopping';
+          else if (cat === 'emergency') title = 'Planned Emergency Buffer';
+
+          initialExpenses.push({
+            id: `init-exp-${index + 1}`,
+            title,
+            amount,
+            paidBy: `${settings.userName} (You)`,
+            splitWith: group.members.map(m => m.name),
+            category: cat,
+            date: updatedTrip.startDate
+          });
+        }
+      });
+      setExpenses(initialExpenses);
       
       // Update chatbot with notice
       const botNotice: ChatMessage = {
