@@ -76,6 +76,19 @@ export const AIService = {
       const systemPrompt = `You are TripPilot AI, a premium intelligent Indian travel companion.
 Generate a comprehensive, highly realistic day-wise travel itinerary in structured JSON format.
 Ensure you align the plans with Indian culture, local transportation, budgets (in INR ₹), and geography.
+
+CRITICAL COSTING & MATHEMATICAL RULES:
+1. Every activity in the daily itinerary must have a realistic cost (in INR ₹) representing the combined total for all travelers.
+2. Calculate costs according to these exact guidelines:
+   - "accommodation": Allocate lodging costs for all travelers combined. Standard hotel charges based on the user's preference: Luxury (~₹6000/night/room), Standard (~₹2500/night/room), Budget (~₹900/night/room). Calculate the number of rooms needed as Math.ceil(Number_of_Travelers / 2). Total daily accommodation cost = rooms * cost_per_night.
+   - "transport": Include inter-city transit on Day 1 (and returning on the last day) based on preference: flight (~₹4500/person), train (~₹850/person), cab/bus (~₹2500/person). Scale this by the total number of travelers. Also include realistic local transit costs (auto-rickshaws, metro, cabs) throughout the days.
+   - "food": Realistic daily meal expenses for all travelers combined based on preference: Luxury (~₹1500/person/day), Standard (~₹600/person/day), Budget (~₹250/person/day).
+   - "sightseeing" & "shopping": Realistic entrance tickets, guide fees, and shopping costs, scaled for all travelers combined.
+   - "emergency": Roughly 8% of the total budget limit.
+3. The sum of the cost of all activities of a given type in the itinerary MUST exactly equal the corresponding field in the "costBreakdown" (e.g. sum of all "food" activities in the itinerary must equal "costBreakdown.food").
+4. "costBreakdown.total" MUST be mathematically equal to the sum of accommodation, transport, food, sightseeing, shopping, and emergency. Double check your math!
+5. Ensure the total cost does NOT exceed the user's budget limit.
+
 Return ONLY a valid JSON object matching the following structure:
 {
   "itinerary": [
@@ -121,13 +134,14 @@ User Interests: ${params.interests.join(', ')}.
 Trip Type: ${params.tripType}.
 Accommodation: ${params.accommodationPreference}.
 Transport preference: ${params.transportPreference}.
-Make sure the total cost does NOT exceed ₹${params.budgetLimit} INR. Include realistic place names, precise physical addresses, duration of visits, specific activity highlights, and local etiquette/dress code guidelines for ${params.destination}. Suggest practical Indian transport modes like auto-rickshaws, metro, Vande Bharat trains, local cabs, or scooty rentals.`;
+
+Calculate and output all costs exactly for ${params.travelers} travelers and ${durationDays} days. Ensure they sum up properly. Make sure the total cost does NOT exceed ₹${params.budgetLimit} INR. Include realistic place names, precise physical addresses, duration of visits, specific activity highlights, and local etiquette/dress code guidelines for ${params.destination}. Suggest practical Indian transport modes like auto-rickshaws, metro, Vande Bharat trains, local cabs, or scooty rentals.`;
 
       try {
         const responseText = await this.callOpenAI(systemPrompt, userPrompt, true, activeKey, model);
         const parsed = JSON.parse(responseText);
 
-        return {
+        const trip = {
           id: Math.random().toString(36).substring(2, 9),
           ...params,
           itinerary: parsed.itinerary || [],
@@ -142,13 +156,14 @@ Make sure the total cost does NOT exceed ₹${params.budgetLimit} INR. Include r
           },
           packingList: parsed.packingList || []
         };
+        return this.alignAndValidateTripCosts(trip);
       } catch (error) {
         console.error('Failed to generate itinerary with OpenAI, falling back to mock engine', error);
       }
     }
 
     // Dynamic Mock Fallback Engine
-    return this.generateMockTrip(params, durationDays);
+    return this.alignAndValidateTripCosts(this.generateMockTrip(params, durationDays));
   },
 
   /**
@@ -801,5 +816,166 @@ I can help you with local details for your travel. Ask me about:
 *   **"How can I cut down my budget?"**
 *   
 How is your day going?`;
+  },
+
+  /**
+   * Sanitizes, aligns, and validates trip costs and itinerary activities.
+   * Recalculates cost breakdown categories directly from activities.
+   * Proportional scaling is applied to flexible categories if total budget is exceeded.
+   */
+  alignAndValidateTripCosts(trip: Trip): Trip {
+
+    // 1. Ensure daily accommodation activities exist in the itinerary
+    let hasAccommodationActivity = false;
+    trip.itinerary.forEach(day => {
+      if (day.activities.some(act => act.type === 'accommodation')) {
+        hasAccommodationActivity = true;
+      }
+    });
+
+    const accommodationCostPerNight = trip.accommodationPreference === 'Luxury' ? 6000 : trip.accommodationPreference === 'Standard' ? 2500 : 900;
+    const roomsCount = Math.ceil(trip.travelers / 2);
+    const dailyAccCost = accommodationCostPerNight * roomsCount;
+
+    if (!hasAccommodationActivity) {
+      trip.itinerary.forEach(day => {
+        day.activities.unshift({
+          time: '08:00',
+          title: `${trip.accommodationPreference} Stay (Daily Cost)`,
+          description: `Room charge at your chosen ${trip.accommodationPreference.toLowerCase()} lodging.`,
+          cost: dailyAccCost,
+          type: 'accommodation',
+          location: 'Hotel/Homestay'
+        });
+      });
+    }
+
+    // 2. Ensure intercity travel activity exists on Day 1
+    let hasIntercityTravel = false;
+    trip.itinerary.forEach(day => {
+      if (day.activities.some(act => act.type === 'transport' && act.title.includes('Travel:'))) {
+        hasIntercityTravel = true;
+      }
+    });
+
+    const intercityCostPerPerson = 
+      trip.transportPreference === 'flight' ? 4500 :
+      trip.transportPreference === 'train' ? 850 :
+      2500; // cab/bus/default
+    const totalIntercityCost = intercityCostPerPerson * trip.travelers;
+
+    if (!hasIntercityTravel && trip.itinerary.length > 0) {
+      trip.itinerary[0].activities.splice(1, 0, {
+        time: '07:00',
+        title: `Travel: ${trip.source} to ${trip.destination}`,
+        description: `Inter-city transit via ${trip.transportPreference}.`,
+        cost: totalIntercityCost,
+        type: 'transport',
+        location: `${trip.source} Station/Airport`
+      });
+    }
+
+    // 3. Ensure emergency buffer is represented as an activity
+    let hasEmergencyActivity = false;
+    trip.itinerary.forEach(day => {
+      if (day.activities.some(act => act.type === 'emergency')) {
+        hasEmergencyActivity = true;
+      }
+    });
+
+    const emergencyBuffer = Math.round(trip.budgetLimit * 0.08);
+    if (!hasEmergencyActivity && trip.itinerary.length > 0) {
+      const lastDay = trip.itinerary[trip.itinerary.length - 1];
+      lastDay.activities.push({
+        time: '21:00',
+        title: 'Emergency Buffer / Contingency Fund',
+        description: 'Reserved funds for unexpected travel expenses or emergency needs.',
+        cost: emergencyBuffer,
+        type: 'emergency',
+        location: 'General'
+      });
+    }
+
+    // 4. Recalculate cost breakdown fields based on activities
+    let accommodation = 0;
+    let transport = 0;
+    let food = 0;
+    let sightseeing = 0;
+    let shopping = 0;
+    let emergency = 0;
+
+    trip.itinerary.forEach(day => {
+      day.activities.forEach(act => {
+        const cost = Number(act.cost) || 0;
+        if (act.type === 'accommodation') accommodation += cost;
+        else if (act.type === 'transport') transport += cost;
+        else if (act.type === 'food') food += cost;
+        else if (act.type === 'sightseeing') sightseeing += cost;
+        else if (act.type === 'shopping') shopping += cost;
+        else emergency += cost;
+      });
+    });
+
+    let total = accommodation + transport + food + sightseeing + shopping + emergency;
+
+    // 5. If the total exceeds the budget limit, scale down flexible expenses
+    if (total > trip.budgetLimit) {
+      const fixedCosts = accommodation + transport + emergency;
+      const flexibleCosts = food + sightseeing + shopping;
+      const remainingBudget = trip.budgetLimit - fixedCosts;
+
+      if (remainingBudget > 0 && flexibleCosts > 0) {
+        const scaleFactor = remainingBudget / flexibleCosts;
+        trip.itinerary.forEach(day => {
+          day.activities.forEach(act => {
+            if (act.type !== 'accommodation' && act.type !== 'emergency' && !act.title.includes('Travel:')) {
+              act.cost = Math.round(act.cost * scaleFactor);
+            }
+          });
+        });
+      } else if (flexibleCosts > 0) {
+        trip.itinerary.forEach(day => {
+          day.activities.forEach(act => {
+            if (act.type !== 'accommodation' && act.type !== 'emergency' && !act.title.includes('Travel:')) {
+              act.cost = 0;
+            }
+          });
+        });
+      }
+
+      // Recalculate after scaling
+      accommodation = 0;
+      transport = 0;
+      food = 0;
+      sightseeing = 0;
+      shopping = 0;
+      emergency = 0;
+
+      trip.itinerary.forEach(day => {
+        day.activities.forEach(act => {
+          const cost = Number(act.cost) || 0;
+          if (act.type === 'accommodation') accommodation += cost;
+          else if (act.type === 'transport') transport += cost;
+          else if (act.type === 'food') food += cost;
+          else if (act.type === 'sightseeing') sightseeing += cost;
+          else if (act.type === 'shopping') shopping += cost;
+          else emergency += cost;
+        });
+      });
+
+      total = accommodation + transport + food + sightseeing + shopping + emergency;
+    }
+
+    trip.costBreakdown = {
+      accommodation,
+      transport,
+      food,
+      sightseeing,
+      shopping,
+      emergency,
+      total
+    };
+
+    return trip;
   }
 };
