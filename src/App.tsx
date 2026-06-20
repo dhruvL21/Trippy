@@ -61,7 +61,7 @@ const fetchGroupFromDpaste = async (pasteId: string) => {
   try {
     return JSON.parse(text);
   } catch (err) {
-    throw new Error('Invalid data format received from invite code.');
+    throw new Error('Invalid data format received from invite code.', { cause: err });
   }
 };
 
@@ -89,6 +89,8 @@ const INTERESTS_LIST = [
   { id: 'shopping', label: 'Shopping 🛍️' },
   { id: 'adventure', label: 'Adventure 🧗' }
 ];
+
+const CLIENT_ID = 'client-' + Math.random().toString(36).substring(2, 15) + '-' + Date.now();
 
 export default function App() {
   // --- Persistent States ---
@@ -168,9 +170,9 @@ export default function App() {
           const savedSettings = localStorage.getItem('trippy_settings');
           const cleanUserName = savedSettings ? JSON.parse(savedSettings).userName?.trim().toLowerCase() : 'dhruv';
           
-          const mem1s = parsed.members.filter((m: any) => m.id === 'mem-1');
+          const mem1s = parsed.members.filter((m: Member) => m.id === 'mem-1');
           if (mem1s.length > 1) {
-            parsed.members = parsed.members.map((m: any) => {
+            parsed.members = parsed.members.map((m: Member) => {
               const mClean = m.name.replace(/\s*\(You\)$/i, '').trim().toLowerCase();
               if (m.id === 'mem-1' && mClean !== cleanUserName) {
                 let targetId = 'mem-' + Math.random().toString(36).substring(2, 6);
@@ -352,7 +354,6 @@ export default function App() {
   // Keep latest refs of group and expenses to avoid stale closures in EventSource SSE listener
   const latestGroupRef = useRef<Group>(group);
   const latestExpensesRef = useRef<Expense[]>(expenses);
-  const clientId = useRef<string>('client-' + Math.random().toString(36).substring(2, 15) + '-' + Date.now());
 
   useEffect(() => {
     latestGroupRef.current = group;
@@ -369,6 +370,41 @@ export default function App() {
   // --- Sync storage changes ---
   useEffect(() => {
     localStorage.removeItem('trippy_active_tab');
+  }, []);
+
+  const handleAuthSuccess = useCallback((user: User) => {
+    setCurrentUser(user);
+    setIsGuest(false);
+    setActiveTab('planner');
+    
+    // Auto-update settings with user info
+    setSettings(prev => {
+      const updated = {
+        ...prev,
+        userName: user.name,
+        email: user.email
+      };
+      return updated;
+    });
+
+    // Keep temp states in sync
+    setTempUserName(user.name);
+    setTempEmail(user.email);
+
+    // Sync member list (Dhruv -> user name) in active group
+    setGroup(prev => {
+      const updatedMembers = prev.members.map(m => 
+        m.id === 'mem-1' ? { ...m, name: `${user.name} (You)` } : m
+      );
+      const updatedChecklist = prev.checklist.map(c => 
+        c.assigneeName?.includes('(You)') ? { ...c, assigneeName: `${user.name} (You)` } : c
+      );
+      return {
+        ...prev,
+        members: updatedMembers,
+        checklist: updatedChecklist
+      };
+    });
   }, []);
 
   // --- OAuth Callback Redirect Parser ---
@@ -423,7 +459,7 @@ export default function App() {
         console.error("Failed to decode Apple token payload:", err);
       }
     }
-  }, []);
+  }, [handleAuthSuccess]);
 
   useEffect(() => {
     if (isGuest) return;
@@ -485,7 +521,7 @@ export default function App() {
     }
   }, []);
 
-  const broadcastGroupUpdate = useCallback((type: string, data: any, targetGroupId?: string) => {
+  const broadcastGroupUpdate = useCallback((type: string, data: unknown, targetGroupId?: string) => {
     const activeGroupId = targetGroupId || latestGroupRef.current?.id;
     if (!activeGroupId || isGuest) return;
     const cleanTopic = `trippy-${activeGroupId.replace(/[^a-zA-Z0-9-_]/g, '')}`;
@@ -494,7 +530,7 @@ export default function App() {
       body: JSON.stringify({
         type,
         data,
-        senderId: clientId.current,
+        senderId: CLIENT_ID,
         senderName: settings.userName
       })
     }).catch(err => console.error("Failed to broadcast group update:", err));
@@ -798,7 +834,7 @@ export default function App() {
     } else if (joinParam) {
       const trimmed = joinParam.trim();
       let isDpaste = false;
-      let dpasteCode = trimmed;
+      const dpasteCode = trimmed;
 
       if (trimmed.length >= 6 && trimmed.length <= 12 && /^[a-zA-Z0-9]+$/.test(trimmed)) {
         isDpaste = true;
@@ -843,7 +879,7 @@ export default function App() {
           method: 'POST',
           body: JSON.stringify({
             type: 'request_sync',
-            senderId: clientId.current,
+            senderId: CLIENT_ID,
             senderName: settings.userName
           })
         }).catch(err => console.error("Failed to send request_sync on EventSource open:", err));
@@ -858,11 +894,11 @@ export default function App() {
         const update = JSON.parse(ntfyData.message);
         
         // Skip updates sent by the local client itself
-        if (update.senderId === clientId.current) return;
+        if (update.senderId === CLIENT_ID) return;
         
         switch (update.type) {
           case 'request_sync': {
-            if (update.senderId !== clientId.current) {
+            if (update.senderId !== CLIENT_ID) {
               const currentGroup = latestGroupRef.current;
               const currentExpenses = latestExpensesRef.current;
               
@@ -893,7 +929,7 @@ export default function App() {
               if (prev.chatHistory.some(m => m.id === chatMsg.id)) return prev;
               
               // Ensure sender is in the group members list
-              let updatedMembers = [...prev.members];
+              const updatedMembers = [...prev.members];
               const senderClean = chatMsg.sender.trim();
               const exists = updatedMembers.some(m => m.name.replace(/\s*\(You\)$/i, '').trim().toLowerCase() === senderClean.toLowerCase());
               if (!exists && chatMsg.sender !== 'System' && chatMsg.sender !== 'TripPilot') {
@@ -946,7 +982,7 @@ export default function App() {
 
             // Check if we have been removed by the admin
             const cleanLoc = settings.userName.trim().toLowerCase();
-            const stillInGroup = syncedMembers.some((m: any) => {
+            const stillInGroup = syncedMembers.some((m: Member) => {
               const cleanM = m.name.replace(/\s*\(You\)$/i, '').trim().toLowerCase();
               return cleanM === cleanLoc;
             });
@@ -987,12 +1023,12 @@ export default function App() {
               const localUser = prev.members.find(m => m.id === 'mem-1') || { id: 'mem-1', name: `${settings.userName} (You)`, upi: settings.userUpi };
               
               const filteredIncoming = syncedMembers
-                .filter((m: any) => {
+                .filter((m: Member) => {
                   const cleanInc = m.name.replace(/\s*\(You\)$/i, '').trim().toLowerCase();
                   const cleanLocName = settings.userName.trim().toLowerCase();
                   return cleanInc !== cleanLocName;
                 })
-                .map((m: any) => {
+                .map((m: Member) => {
                   const cleanName = m.name.replace(/\s*\(You\)$/i, '').trim();
                   
                   // Check if this member is the admin/host (when we are not the admin)
@@ -1058,7 +1094,7 @@ export default function App() {
             
             // Check for new expenses added by comparing with latest expenses ref
             const currentExpenses = latestExpensesRef.current;
-            const newItems = syncedExpenses.filter((e: any) => !currentExpenses.some(old => old.id === e.id));
+            const newItems = syncedExpenses.filter((e: Expense) => !currentExpenses.some(old => old.id === e.id));
             
             if (newItems.length > 0) {
               const newExp = newItems[0];
@@ -1099,6 +1135,7 @@ export default function App() {
     return () => {
       eventSource.close();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [group.id, isGuest, settings.userName, settings.userUpi, broadcastGroupUpdate, showNotification]);
 
   // Scroll chats to bottom
@@ -1254,41 +1291,6 @@ export default function App() {
       setSharingGroup(false);
     }
   };
-
-  const handleAuthSuccess = useCallback((user: User) => {
-    setCurrentUser(user);
-    setIsGuest(false);
-    setActiveTab('planner');
-    
-    // Auto-update settings with user info
-    setSettings(prev => {
-      const updated = {
-        ...prev,
-        userName: user.name,
-        email: user.email
-      };
-      return updated;
-    });
-
-    // Keep temp states in sync
-    setTempUserName(user.name);
-    setTempEmail(user.email);
-
-    // Sync member list (Dhruv -> user name) in active group
-    setGroup(prev => {
-      const updatedMembers = prev.members.map(m => 
-        m.id === 'mem-1' ? { ...m, name: `${user.name} (You)` } : m
-      );
-      const updatedChecklist = prev.checklist.map(c => 
-        c.assigneeName?.includes('(You)') ? { ...c, assigneeName: `${user.name} (You)` } : c
-      );
-      return {
-        ...prev,
-        members: updatedMembers,
-        checklist: updatedChecklist
-      };
-    });
-  }, []);
 
   const handleLogout = () => {
     if (confirm('Are you sure you want to log out?')) {
