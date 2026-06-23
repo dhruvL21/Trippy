@@ -2404,6 +2404,7 @@ input:focus, select:focus, textarea:focus {
   }
 }
 
+<<<<<<< HEAD
 /* Offline Capabilities - Modals & Hub Styles */
 .offline-modal-overlay {
   position: fixed;
@@ -2675,5 +2676,18 @@ input:focus, select:focus, textarea:focus {
     right: 16px !important;
   }
 }
+=======
+/* Budget Alert and Optimizer Card styles */
+.budget-alert-card {
+  animation: slideUp 0.3s ease-out;
+}
+
+.optimizer-suggestion-item:hover {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border-color: rgba(99, 102, 241, 0.3) !important;
+  transform: translateY(-1px);
+}
+
+>>>>>>> ae931cd3057df148940fd085ab48214daafe70e2
 
 
