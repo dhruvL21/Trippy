@@ -2404,6 +2404,279 @@ input:focus, select:focus, textarea:focus {
   }
 }
 
+<<<<<<< HEAD
+/* Offline Capabilities - Modals & Hub Styles */
+.offline-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(6, 7, 10, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+  animation: fadeIn 0.3s ease-out;
+}
+
+.offline-modal-content {
+  position: relative;
+  background: var(--bg-surface-glass);
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  padding: 40px;
+  max-width: 780px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6), inset 0 0 20px rgba(255, 255, 255, 0.02);
+  animation: scaleUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.offline-modal-close {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.offline-modal-close:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+  border-color: var(--border-hover);
+  transform: rotate(90deg);
+}
+
+.offline-modal-header {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.offline-modal-icon-wrap {
+  display: inline-flex;
+  padding: 16px;
+  border-radius: 50%;
+  background: rgba(245, 158, 11, 0.08);
+  color: #fbbf24;
+  margin-bottom: 16px;
+  box-shadow: 0 0 25px rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.15);
+  animation: pulseWarning 2s infinite alternate;
+}
+
+.offline-modal-header h3 {
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 800;
+  margin: 0 0 10px;
+  background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.offline-modal-header p {
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  max-width: 580px;
+  margin: 0 auto;
+}
+
+.offline-modal-features-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  margin-bottom: 32px;
+}
+
+.offline-feature-item {
+  display: flex;
+  gap: 14px;
+  background: rgba(255, 255, 255, 0.01);
+  padding: 16px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  transition: all 0.2s ease;
+}
+
+.offline-feature-item:hover {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: var(--border-hover);
+  transform: translateY(-2px);
+}
+
+.offline-feature-item .check {
+  color: #10b981;
+  font-weight: 800;
+  font-size: 16px;
+  background: rgba(16, 185, 129, 0.1);
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.1);
+}
+
+.offline-feature-item h4 {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.offline-feature-item p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.offline-modal-footer {
+  display: flex;
+  justify-content: center;
+}
+
+/* Hover effect for landing page promotion button */
+.btn-offline-promo {
+  transition: all 0.3s ease;
+}
+.btn-offline-promo:hover {
+  background: rgba(245, 158, 11, 0.15) !important;
+  border-color: rgba(245, 158, 11, 0.5) !important;
+  transform: translateY(-1px);
+  box-shadow: 0 0 25px rgba(245, 158, 11, 0.15) !important;
+}
+
+/* Pulsing online/offline indicators */
+@keyframes pulseWarning {
+  0% {
+    box-shadow: 0 0 15px rgba(245, 158, 11, 0.1);
+  }
+  100% {
+    box-shadow: 0 0 25px rgba(245, 158, 11, 0.3);
+  }
+}
+
+@keyframes pulseGlow {
+  0% {
+    opacity: 0.8;
+  }
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 10px rgba(245, 158, 11, 0.1);
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scaleUp {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* Responsive grid for modal features on mobile */
+@media (max-width: 680px) {
+  .offline-modal-features-grid {
+    grid-template-columns: 1fr;
+  }
+  .offline-modal-content {
+    padding: 30px 20px;
+  }
+}
+
+/* Floating Action Chatbot Button & Popover Panel */
+.floating-chatbot-btn {
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.floating-chatbot-btn:hover {
+  transform: scale(1.1) translateY(-2px);
+  box-shadow: 0 12px 40px rgba(139, 92, 246, 0.5), 0 0 0 2px rgba(139, 92, 246, 0.3) !important;
+}
+
+.floating-chatbot-btn:active {
+  transform: scale(0.95);
+}
+
+.floating-chatbot-btn.active {
+  background: var(--bg-surface) !important;
+  color: var(--danger) !important;
+  border-color: rgba(239, 68, 68, 0.2) !important;
+  box-shadow: 0 8px 32px rgba(239, 68, 68, 0.2) !important;
+}
+
+.floating-chatbot-btn svg {
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.floating-chatbot-btn:hover svg {
+  transform: scale(1.15) rotate(15deg);
+}
+
+.floating-chatbot-panel {
+  animation: slideUpFadeIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  transform-origin: bottom right;
+}
+
+@keyframes slideUpFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(24px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.notification-glow {
+  animation: notificationPulse 1.5s infinite alternate;
+}
+
+@keyframes notificationPulse {
+  0% {
+    transform: scale(0.9);
+    box-shadow: 0 0 4px #fbbf24;
+  }
+  100% {
+    transform: scale(1.1);
+    box-shadow: 0 0 12px #fbbf24, 0 0 0 3px rgba(251, 191, 36, 0.2);
+  }
+}
+
+/* Adjust size on smaller mobile viewports */
+@media (max-width: 480px) {
+  .floating-chatbot-panel {
+    bottom: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    max-height: 100vh !important;
+    border-radius: 0 !important;
+  }
+  .floating-chatbot-btn {
+    bottom: 16px !important;
+    right: 16px !important;
+  }
+}
+=======
 /* Budget Alert and Optimizer Card styles */
 .budget-alert-card {
   animation: slideUp 0.3s ease-out;
@@ -2415,5 +2688,6 @@ input:focus, select:focus, textarea:focus {
   transform: translateY(-1px);
 }
 
+>>>>>>> ae931cd3057df148940fd085ab48214daafe70e2
 
 
