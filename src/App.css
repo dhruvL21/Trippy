@@ -2404,4 +2404,16 @@ input:focus, select:focus, textarea:focus {
   }
 }
 
+/* Budget Alert and Optimizer Card styles */
+.budget-alert-card {
+  animation: slideUp 0.3s ease-out;
+}
+
+.optimizer-suggestion-item:hover {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border-color: rgba(99, 102, 241, 0.3) !important;
+  transform: translateY(-1px);
+}
+
+
 
