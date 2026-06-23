@@ -228,8 +228,7 @@ export default function App() {
   });
 
   const [chatbotMessages, setChatbotMessages] = useState<ChatMessage[]>(() => {
-    const isG = localStorage.getItem('trippy_is_guest') === 'true';
-    const welcomeMsgs = [
+    return [
       {
         id: 'welcome',
         sender: 'TripPilot',
@@ -238,10 +237,6 @@ export default function App() {
         isAI: true
       }
     ];
-    if (isG) return welcomeMsgs;
-    const saved = localStorage.getItem('trippy_chatbot_msgs');
-    if (saved) return JSON.parse(saved);
-    return welcomeMsgs;
   });
 
   const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
@@ -439,6 +434,18 @@ export default function App() {
         checklist: updatedChecklist
       };
     });
+
+    // Clear and reset chatbot messages to welcome state on login/signin
+    localStorage.removeItem('trippy_chatbot_msgs');
+    setChatbotMessages([
+      {
+        id: 'welcome',
+        sender: 'TripPilot',
+        text: `Hi there! I am your AI Travel Companion. 🗺️\n\nGenerate a trip in the **Trip Planner** tab, and I will instantly know the details to help you out!\n\nFeel free to ask me questions like:\n* *"Is UPI accepted widely in Goa?"*\n* *"What is the temple dress code in Jaipur?"*\n* *"How can I cut costs on transport?"*`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        isAI: true
+      }
+    ]);
   }, []);
 
   // --- OAuth Callback Redirect Parser ---
@@ -524,11 +531,6 @@ export default function App() {
     if (isGuest) return;
     localStorage.setItem('trippy_expenses', JSON.stringify(expenses));
   }, [expenses, isGuest]);
-
-  useEffect(() => {
-    if (isGuest) return;
-    localStorage.setItem('trippy_chatbot_msgs', JSON.stringify(chatbotMessages));
-  }, [chatbotMessages, isGuest]);
 
   useEffect(() => {
     if (isGuest) return;
