@@ -412,24 +412,54 @@ Calculate and output all costs exactly for ${params.travelers} travelers and ${d
       location: `${params.source} Station/Airport`
     });
 
-    // Set emergency buffer (approx 10% of budget)
+    // Set emergency buffer (approx 8% of budget)
     emergency = Math.round(params.budgetLimit * 0.08);
 
     const total = accommodation + transport + food + sightseeing + shopping + emergency;
 
     // Scale down if we exceed budget limit
-    let scaleFactor = 1;
     if (total > params.budgetLimit) {
-      scaleFactor = (params.budgetLimit - emergency) / (total - emergency);
-      
-      // Scale down activities costs (excluding accommodation and inter-city travel)
+      // Find fixed costs (accommodation and inter-city travel)
+      let fixedCosts = 0;
+      let flexibleCosts = 0;
       finalItinerary.forEach(day => {
         day.activities.forEach(act => {
-          if (act.type !== 'accommodation' && !act.title.includes('Travel:')) {
-            act.cost = Math.round(act.cost * scaleFactor);
+          if (act.type === 'accommodation' || act.title.includes('Travel:')) {
+            fixedCosts += act.cost;
+          } else {
+            flexibleCosts += act.cost;
           }
         });
       });
+
+      const minEmergency = Math.max(2000, Math.round(params.budgetLimit * 0.02));
+      let finalEmergency = 0;
+
+      if (fixedCosts + minEmergency < params.budgetLimit) {
+        finalEmergency = minEmergency;
+        if (flexibleCosts > 0) {
+          const scaleFactor = (params.budgetLimit - fixedCosts - minEmergency) / flexibleCosts;
+          finalItinerary.forEach(day => {
+            day.activities.forEach(act => {
+              if (act.type !== 'accommodation' && !act.title.includes('Travel:')) {
+                act.cost = Math.round(act.cost * scaleFactor);
+              }
+            });
+          });
+        }
+      } else {
+        // Even with minEmergency, fixed costs exceed/equal the budget limit
+        finalItinerary.forEach(day => {
+          day.activities.forEach(act => {
+            if (act.type !== 'accommodation' && !act.title.includes('Travel:')) {
+              act.cost = 0;
+            }
+          });
+        });
+        finalEmergency = Math.max(0, params.budgetLimit - fixedCosts);
+      }
+
+      emergency = finalEmergency;
 
       // Recalculate totals
       accommodation = 0;
@@ -920,20 +950,40 @@ How is your day going?`;
 
     // 5. If the total exceeds the budget limit, scale down flexible expenses
     if (total > trip.budgetLimit) {
-      const fixedCosts = accommodation + transport + emergency;
-      const flexibleCosts = food + sightseeing + shopping;
-      const remainingBudget = trip.budgetLimit - fixedCosts;
+      let fixedCosts = 0;
+      let flexibleCosts = 0;
+      let currentEmergency = 0;
 
-      if (remainingBudget > 0 && flexibleCosts > 0) {
-        const scaleFactor = remainingBudget / flexibleCosts;
-        trip.itinerary.forEach(day => {
-          day.activities.forEach(act => {
-            if (act.type !== 'accommodation' && act.type !== 'emergency' && !act.title.includes('Travel:')) {
-              act.cost = Math.round(act.cost * scaleFactor);
-            }
-          });
+      trip.itinerary.forEach(day => {
+        day.activities.forEach(act => {
+          const cost = Number(act.cost) || 0;
+          if (act.type === 'accommodation' || act.title.includes('Travel:')) {
+            fixedCosts += cost;
+          } else if (act.type === 'emergency') {
+            currentEmergency += cost;
+          } else {
+            flexibleCosts += cost;
+          }
         });
-      } else if (flexibleCosts > 0) {
+      });
+
+      const minEmergency = Math.max(2000, Math.round(trip.budgetLimit * 0.02));
+      let finalEmergency = 0;
+
+      if (fixedCosts + minEmergency < trip.budgetLimit) {
+        finalEmergency = minEmergency;
+        if (flexibleCosts > 0) {
+          const scaleFactor = (trip.budgetLimit - fixedCosts - minEmergency) / flexibleCosts;
+          trip.itinerary.forEach(day => {
+            day.activities.forEach(act => {
+              if (act.type !== 'accommodation' && act.type !== 'emergency' && !act.title.includes('Travel:')) {
+                act.cost = Math.round(act.cost * scaleFactor);
+              }
+            });
+          });
+        }
+      } else {
+        // Even with minEmergency, fixed costs exceed/equal the budget limit
         trip.itinerary.forEach(day => {
           day.activities.forEach(act => {
             if (act.type !== 'accommodation' && act.type !== 'emergency' && !act.title.includes('Travel:')) {
@@ -941,7 +991,17 @@ How is your day going?`;
             }
           });
         });
+        finalEmergency = Math.max(0, trip.budgetLimit - fixedCosts);
       }
+
+      // Update emergency buffer activities in the itinerary to match finalEmergency
+      trip.itinerary.forEach(day => {
+        day.activities.forEach(act => {
+          if (act.type === 'emergency') {
+            act.cost = finalEmergency;
+          }
+        });
+      });
 
       // Recalculate after scaling
       accommodation = 0;

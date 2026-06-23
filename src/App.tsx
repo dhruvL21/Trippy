@@ -1491,12 +1491,175 @@ export default function App() {
       });
       setExpenses(initialExpenses);
 
-    } catch (err) {
-      alert((err as Error).message || 'Failed to generate travel plan.');
     } finally {
       setLoadingTrip(false);
       setLoadingSafety(false);
     }
+  };
+
+  const optimizeAndRegenerateTrip = async (newAccPref: string, newTransPref: string) => {
+    setLoadingTrip(true);
+    setLoadingSafety(true);
+
+    try {
+      const interestsLabels = selectedInterests.map(id => INTERESTS_LIST.find(i => i.id === id)?.label || id);
+      
+      const tripParams = {
+        source: activeTrip?.source || source,
+        destination: activeTrip?.destination || destination,
+        startDate: activeTrip?.startDate || startDate,
+        endDate: activeTrip?.endDate || endDate,
+        travelers: activeTrip?.travelers || Number(travelers) || 1,
+        budgetLimit: activeTrip?.budgetLimit || Number(budgetLimit) || 1000,
+        interests: activeTrip?.interests || interestsLabels,
+        tripType: activeTrip?.tripType || tripType,
+        accommodationPreference: newAccPref,
+        transportPreference: newTransPref
+      };
+
+      setAccommodationPreference(newAccPref);
+      setTransportPreference(newTransPref);
+
+      const trip = await AIService.generateItinerary(tripParams, settings.openaiApiKey, settings.model);
+      setActiveTrip(trip);
+      setActiveItineraryDay(1);
+
+      const safety = await AIService.generateSafetyReport(tripParams.destination, settings.openaiApiKey, settings.model);
+      setSafetyReport(safety);
+
+      const firstMsg: ChatMessage = {
+        id: generateId(),
+        sender: 'TripPilot',
+        text: `Optimized your trip budget and regenerated the schedule to **${tripParams.destination}**! 🎒\n\nFixed costs have been reduced, and Food/Shopping/Sightseeing budgets have been restored.`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        isAI: true
+      };
+      setChatbotMessages([firstMsg]);
+
+      const updatedGroupMembers = [
+        { id: 'mem-1', name: `${settings.userName} (You)`, upi: settings.userUpi },
+        ...Array.from({ length: Math.max(0, Number(tripParams.travelers) - 1) }).map((_, i) => ({
+          id: `mem-gen-${i}`,
+          name: `Traveler ${i + 2}`,
+          upi: `traveler${i + 2}@upi`
+        }))
+      ];
+
+      setGroup(prev => ({
+        ...prev,
+        members: updatedGroupMembers,
+        checklist: [
+          { id: 'c-1', text: `Review emergency contacts in ${tripParams.destination}`, checked: false, assigneeName: `${settings.userName} (You)` },
+          ...trip.packingList.slice(0, 3).map((item, idx) => ({
+            id: `c-pack-${idx}`,
+            text: `Pack: ${item}`,
+            checked: false,
+            assigneeName: updatedGroupMembers[idx % updatedGroupMembers.length].name
+          }))
+        ]
+      }));
+
+      const initialExpenses: Expense[] = [];
+      const categories: ('accommodation' | 'transport' | 'food' | 'sightseeing' | 'shopping' | 'emergency')[] = [
+        'accommodation',
+        'transport',
+        'food',
+        'sightseeing',
+        'shopping',
+        'emergency'
+      ];
+
+      categories.forEach((cat, index) => {
+        const amount = trip.costBreakdown[cat];
+        if (amount > 0) {
+          let title = '';
+          if (cat === 'accommodation') title = 'Planned Accommodation';
+          else if (cat === 'transport') title = `Planned Transport (${newTransPref})`;
+          else if (cat === 'food') title = 'Planned Food & Dining';
+          else if (cat === 'sightseeing') title = 'Planned Sightseeing & Activities';
+          else if (cat === 'shopping') title = 'Planned Shopping';
+          else if (cat === 'emergency') title = 'Planned Emergency Buffer';
+
+          initialExpenses.push({
+            id: `init-exp-${index + 1}`,
+            title,
+            amount,
+            paidBy: `${settings.userName} (You)`,
+            splitWith: updatedGroupMembers.map(m => m.name),
+            category: cat,
+            date: tripParams.startDate
+          });
+        }
+      });
+      setExpenses(initialExpenses);
+
+      broadcastGroupUpdate('itinerary_sync', trip);
+      broadcastGroupUpdate('expenses_sync', initialExpenses);
+    } catch (err) {
+      alert((err as Error).message || 'Failed to optimize trip.');
+    } finally {
+      setLoadingTrip(false);
+      setLoadingSafety(false);
+    }
+  };
+
+  const getBudgetOptimizationSuggestions = () => {
+    if (!activeTrip) return [];
+
+    const { accommodationPreference, transportPreference, travelers, itinerary } = activeTrip;
+    const daysCount = itinerary.length;
+    const roomsCount = Math.ceil(travelers / 2);
+
+    const suggestions: { text: string; newAccPref: string; newTransPref: string; savings: number }[] = [];
+
+    if (accommodationPreference === 'Luxury') {
+      const savingsPerNight = (6000 - 2500) * roomsCount;
+      const totalSavings = savingsPerNight * daysCount;
+      suggestions.push({
+        text: `Switch lodging from Luxury Resort to Standard Hotel (saves ₹${savingsPerNight.toLocaleString('en-IN')}/day, total ₹${totalSavings.toLocaleString('en-IN')} savings)`,
+        newAccPref: 'Standard',
+        newTransPref: transportPreference,
+        savings: totalSavings
+      });
+    } else if (accommodationPreference === 'Standard') {
+      const savingsPerNight = (2500 - 900) * roomsCount;
+      const totalSavings = savingsPerNight * daysCount;
+      suggestions.push({
+        text: `Switch lodging from Standard Hotel to Hostel/HomeStay (saves ₹${savingsPerNight.toLocaleString('en-IN')}/day, total ₹${totalSavings.toLocaleString('en-IN')} savings)`,
+        newAccPref: 'Budget',
+        newTransPref: transportPreference,
+        savings: totalSavings
+      });
+    }
+
+    if (transportPreference === 'flight') {
+      const savingsTrain = (4500 - 850) * travelers;
+      suggestions.push({
+        text: `Switch transit from Flight to Train (saves ₹3,650 per person, total ₹${savingsTrain.toLocaleString('en-IN')} savings)`,
+        newAccPref: accommodationPreference,
+        newTransPref: 'train',
+        savings: savingsTrain
+      });
+
+      const savingsCab = (4500 - 2500) * travelers;
+      suggestions.push({
+        text: `Switch transit from Flight to Rental Cab/Bus (saves ₹2,000 per person, total ₹${savingsCab.toLocaleString('en-IN')} savings)`,
+        newAccPref: accommodationPreference,
+        newTransPref: 'cab',
+        savings: savingsCab
+      });
+    } else if (transportPreference === 'cab') {
+      const savingsPerPerson = 2500 - 850;
+      const totalSavings = savingsPerPerson * travelers;
+      suggestions.push({
+        text: `Switch transit from Rental Cab/Bus to Train (saves ₹${savingsPerPerson.toLocaleString('en-IN')} per person, total ₹${totalSavings.toLocaleString('en-IN')} savings)`,
+        newAccPref: accommodationPreference,
+        newTransPref: 'train',
+        savings: totalSavings
+      });
+    }
+
+    return suggestions.sort((a, b) => b.savings - a.savings);
   };
 
   const handleReplanning = async (reason: string) => {
@@ -2711,6 +2874,71 @@ export default function App() {
                         <strong style={{ color: 'var(--accent)' }}>₹{activeTrip.costBreakdown.total.toLocaleString('en-IN')}</strong>
                       </div>
                     </div>
+
+                    {/* Budget restricted alert and auto-optimizer */}
+                    {activeTrip && activeTrip.costBreakdown.food === 0 && activeTrip.costBreakdown.shopping === 0 && (
+                      <div className="budget-alert-card glass-panel no-print" style={{ marginTop: '16px', padding: '16px', border: '1px solid rgba(239, 68, 68, 0.3)', background: 'rgba(239, 68, 68, 0.05)', borderRadius: '12px' }}>
+                        <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', marginBottom: '12px' }}>
+                          <AlertTriangle size={20} style={{ color: '#f87171', flexShrink: 0, marginTop: '2px' }} />
+                          <div>
+                            <h4 style={{ color: '#f87171', margin: 0, fontSize: '14px', fontWeight: 600 }}>Budget Alert: Squeezed Activity Budget</h4>
+                            <p style={{ color: 'var(--text-secondary)', fontSize: '12px', margin: '4px 0 0 0', lineHeight: '1.4' }}>
+                              Your fixed costs (accommodation and transport) consume 100% of your budget. As a result, food, shopping, and sightseeing costs have been reduced to <strong>₹0</strong>.
+                            </p>
+                          </div>
+                        </div>
+
+                        {getBudgetOptimizationSuggestions().length > 0 && (
+                          <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.08)', paddingTop: '12px' }}>
+                            <span style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', display: 'block', marginBottom: '8px', fontWeight: 600 }}>
+                              💡 Optimization Recommendations:
+                            </span>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                              {getBudgetOptimizationSuggestions().map((suggestion, idx) => (
+                                <div 
+                                  key={idx} 
+                                  className="optimizer-suggestion-item" 
+                                  style={{ 
+                                    display: 'flex', 
+                                    justifyContent: 'space-between', 
+                                    alignItems: 'center', 
+                                    gap: '12px', 
+                                    padding: '8px 10px', 
+                                    background: 'rgba(255, 255, 255, 0.02)', 
+                                    border: '1px solid var(--border)', 
+                                    borderRadius: '8px',
+                                    transition: 'all 0.2s ease'
+                                  }}
+                                >
+                                  <span style={{ fontSize: '12px', color: 'var(--text-primary)', lineHeight: '1.3' }}>{suggestion.text}</span>
+                                  <button 
+                                    className="btn btn-primary btn-sm" 
+                                    style={{ 
+                                      padding: '4px 10px', 
+                                      fontSize: '11px', 
+                                      borderRadius: '6px', 
+                                      background: 'var(--accent)', 
+                                      border: 'none', 
+                                      color: '#fff', 
+                                      cursor: 'pointer',
+                                      flexShrink: 0,
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '4px'
+                                    }}
+                                    onClick={() => optimizeAndRegenerateTrip(suggestion.newAccPref, suggestion.newTransPref)}
+                                    disabled={loadingTrip}
+                                  >
+                                    <Sparkles size={10} />
+                                    <span>Optimize</span>
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     <h3 style={{ marginBlock: '24px 16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <span>Schedule Calendar</span>
