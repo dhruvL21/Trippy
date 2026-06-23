@@ -7,7 +7,9 @@ import {
   ArrowRight, 
   Info,
   Clock,
-  Play
+  Play,
+  WifiOff,
+  X
 } from 'lucide-react';
 import logoImg from '../assets/logo.png';
 
@@ -17,6 +19,7 @@ interface LandingPageProps {
 
 export default function LandingPage({ onGetStarted }: LandingPageProps) {
   const [demoSelection, setDemoSelection] = useState<'goa' | 'jaipur' | 'manali'>('goa');
+  const [showOfflineModal, setShowOfflineModal] = useState<boolean>(false);
 
   // Scroll to the very top when landing page loads
   useEffect(() => {
@@ -99,6 +102,29 @@ export default function LandingPage({ onGetStarted }: LandingPageProps) {
               <Play size={16} fill="currentColor" />
               <span>Try Interactive Demo</span>
             </a>
+          </div>
+          <div style={{ marginTop: '20px' }}>
+            <button 
+              className="btn btn-offline-promo" 
+              onClick={() => setShowOfflineModal(true)}
+              style={{
+                background: 'rgba(245, 158, 11, 0.08)',
+                border: '1px solid rgba(245, 158, 11, 0.25)',
+                color: '#fbbf24',
+                fontSize: '13px',
+                padding: '8px 20px',
+                borderRadius: '9999px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                cursor: 'pointer',
+                transition: 'all 0.3s ease',
+                boxShadow: '0 0 15px rgba(245, 158, 11, 0.05)'
+              }}
+            >
+              <WifiOff size={14} />
+              <span style={{ fontWeight: 600 }}>Works without internet during your trip. ⭐ See features</span>
+            </button>
           </div>
         </div>
 
@@ -328,6 +354,111 @@ export default function LandingPage({ onGetStarted }: LandingPageProps) {
         </div>
         <p className="footer-copy">&copy; 2026 Trippy. All travel rights reserved. Plan safely.</p>
       </footer>
+      {showOfflineModal && (
+        <div className="offline-modal-overlay" onClick={() => setShowOfflineModal(false)}>
+          <div className="offline-modal-content glass-panel" onClick={(e) => e.stopPropagation()}>
+            <button className="offline-modal-close" onClick={() => setShowOfflineModal(false)}>
+              <X size={18} />
+            </button>
+            
+            <div className="offline-modal-header">
+              <div className="offline-modal-icon-wrap">
+                <WifiOff size={28} />
+              </div>
+              <h3>100% Offline Travel Companion</h3>
+              <p>
+                No internet? No worries. Trippy stores your entire trip database locally on your device, ensuring it functions seamlessly off-grid during your travels.
+              </p>
+            </div>
+
+            <div className="offline-modal-features-grid">
+              <div className="offline-feature-item">
+                <span className="check">✓</span>
+                <div>
+                  <h4>Saved itineraries</h4>
+                  <p>Access full schedules, timings, and custom plans anytime.</p>
+                </div>
+              </div>
+              <div className="offline-feature-item">
+                <span className="check">✓</span>
+                <div>
+                  <h4>Expense splitter</h4>
+                  <p>Log group costs and track balances instantly without data.</p>
+                </div>
+              </div>
+              <div className="offline-feature-item">
+                <span className="check">✓</span>
+                <div>
+                  <h4>Task assignments</h4>
+                  <p>Assign responsibilities and track checklist tasks offline.</p>
+                </div>
+              </div>
+              <div className="offline-feature-item">
+                <span className="check">✓</span>
+                <div>
+                  <h4>Packing checklist</h4>
+                  <p>Tick off and add essential gear as you pack on the road.</p>
+                </div>
+              </div>
+              <div className="offline-feature-item">
+                <span className="check">✓</span>
+                <div>
+                  <h4>Safety center</h4>
+                  <p>Read neighborhood safety reports and scam updates.</p>
+                </div>
+              </div>
+              <div className="offline-feature-item">
+                <span className="check">✓</span>
+                <div>
+                  <h4>Emergency contacts</h4>
+                  <p>Instantly look up pre-loaded local helplines & numbers.</p>
+                </div>
+              </div>
+              <div className="offline-feature-item">
+                <span className="check">✓</span>
+                <div>
+                  <h4>Travel notes</h4>
+                  <p>Save hotel room numbers, taxi contacts, and quick diaries.</p>
+                </div>
+              </div>
+              <div className="offline-feature-item">
+                <span className="check">✓</span>
+                <div>
+                  <h4>Documents & tickets</h4>
+                  <p>Store hotel confirmation texts, flight references & copies.</p>
+                </div>
+              </div>
+              <div className="offline-feature-item">
+                <span className="check">✓</span>
+                <div>
+                  <h4>AI summaries (cached)</h4>
+                  <p>Read generated AI suggestions and chat history cached locally.</p>
+                </div>
+              </div>
+              <div className="offline-feature-item">
+                <span className="check">✓</span>
+                <div>
+                  <h4>Download entire trip</h4>
+                  <p>Export an interactive single-file HTML app bundle offline.</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="offline-modal-footer">
+              <button 
+                className="btn btn-primary" 
+                onClick={() => {
+                  setShowOfflineModal(false);
+                  onGetStarted();
+                }}
+              >
+                <span>Start Planning Offline</span>
+                <ArrowRight size={16} />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
