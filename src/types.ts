@@ -135,3 +135,21 @@ export interface User {
   avatarUrl?: string;
   authProvider: 'email' | 'google' | 'apple' | 'cognito';
 }
+
+export interface TravelNote {
+  id: string;
+  title: string;
+  content: string;
+  updatedAt: string;
+}
+
+export interface TravelDocument {
+  id: string;
+  title: string;
+  category: 'ticket' | 'hotel' | 'id' | 'other';
+  description?: string;
+  fileName?: string;
+  fileType?: string;
+  fileContent?: string; // base64 string
+  uploadedAt: string;
+}

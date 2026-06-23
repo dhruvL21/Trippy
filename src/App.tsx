@@ -18,14 +18,17 @@ import {
   Edit2,
   LogOut,
   Menu,
-  X
+  X,
+  WifiOff,
+  FileText,
+  Download
 } from 'lucide-react';
 import { AIService } from './services/ai';
 import Auth from './components/Auth';
 import LandingPage from './components/LandingPage';
 import { checkCognitoSession, logoutCognito } from './services/cognito';
 import { Hub } from 'aws-amplify/utils';
-import type { Trip, Group, Member, ChecklistItem, ChatMessage, Expense, SafetyReport, AppSettings, User } from './types';
+import type { Trip, Group, Member, ChecklistItem, ChatMessage, Expense, SafetyReport, AppSettings, User, TravelNote, TravelDocument } from './types';
 import './App.css';
 import logoImg from './assets/logo.png';
 
@@ -103,7 +106,7 @@ export default function App() {
     return localStorage.getItem('trippy_is_guest') === 'true';
   });
 
-  const [activeTab, setActiveTab] = useState<'planner' | 'safety' | 'group' | 'expenses' | 'chatbot' | 'settings'>('planner');
+  const [activeTab, setActiveTab] = useState<'planner' | 'safety' | 'group' | 'expenses' | 'settings' | 'offline'>('planner');
 
   const [settings, setSettings] = useState<AppSettings>(() => {
     const isG = localStorage.getItem('trippy_is_guest') === 'true';
@@ -241,12 +244,41 @@ export default function App() {
     return welcomeMsgs;
   });
 
+  const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
+
+  const [travelNotes, setTravelNotes] = useState<TravelNote[]>(() => {
+    const isG = localStorage.getItem('trippy_is_guest') === 'true';
+    if (isG) return [];
+    const saved = localStorage.getItem('trippy_travel_notes');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  const [travelDocuments, setTravelDocuments] = useState<TravelDocument[]>(() => {
+    const isG = localStorage.getItem('trippy_is_guest') === 'true';
+    if (isG) return [];
+    const saved = localStorage.getItem('trippy_travel_documents');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  // Offline Hub Inputs
+  const [noteTitleInput, setNoteTitleInput] = useState('');
+  const [noteContentInput, setNoteContentInput] = useState('');
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+
+  const [docTitleInput, setDocTitleInput] = useState('');
+  const [docCategoryInput, setDocCategoryInput] = useState<TravelDocument['category']>('ticket');
+  const [docDescriptionInput, setDocDescriptionInput] = useState('');
+  const [docFileName, setDocFileName] = useState('');
+  const [docFileType, setDocFileType] = useState('');
+  const [docFileContent, setDocFileContent] = useState('');
+
   // --- UI Control States ---
   const [loadingTrip, setLoadingTrip] = useState(false);
   const [loadingSafety, setLoadingSafety] = useState(false);
   const [activeItineraryDay, setActiveItineraryDay] = useState<number>(1);
   const [replanningDay, setReplanningDay] = useState<number | null>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isChatOpen, setIsChatOpen] = useState(false);
   const [showLanding, setShowLanding] = useState<boolean>(() => {
     const savedUser = localStorage.getItem('trippy_user');
     const savedGuest = localStorage.getItem('trippy_is_guest');
@@ -502,6 +534,27 @@ export default function App() {
     if (isGuest) return;
     localStorage.setItem('trippy_saved_trips', JSON.stringify(savedTrips));
   }, [savedTrips, isGuest]);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (isGuest) return;
+    localStorage.setItem('trippy_travel_notes', JSON.stringify(travelNotes));
+  }, [travelNotes, isGuest]);
+
+  useEffect(() => {
+    if (isGuest) return;
+    localStorage.setItem('trippy_travel_documents', JSON.stringify(travelDocuments));
+  }, [travelDocuments, isGuest]);
 
   useEffect(() => {
     if (currentUser) {
@@ -1148,7 +1201,7 @@ export default function App() {
   // Scroll chats to bottom
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [chatbotMessages, botLoading]);
+  }, [chatbotMessages, botLoading, isChatOpen]);
 
   useEffect(() => {
     groupChatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -1299,6 +1352,478 @@ export default function App() {
     }
   };
 
+  // --- Travel Notes Handlers ---
+  const handleSaveNote = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!noteTitleInput.trim() || !noteContentInput.trim()) return;
+
+    const timestamp = new Date().toLocaleString('en-IN', {
+      dateStyle: 'medium',
+      timeStyle: 'short'
+    });
+
+    if (editingNoteId) {
+      setTravelNotes(prev => prev.map(n => n.id === editingNoteId ? {
+        ...n,
+        title: noteTitleInput.trim(),
+        content: noteContentInput.trim(),
+        updatedAt: timestamp
+      } : n));
+      setEditingNoteId(null);
+    } else {
+      const newNote: TravelNote = {
+        id: 'note-' + generateId(),
+        title: noteTitleInput.trim(),
+        content: noteContentInput.trim(),
+        updatedAt: timestamp
+      };
+      setTravelNotes(prev => [newNote, ...prev]);
+    }
+
+    setNoteTitleInput('');
+    setNoteContentInput('');
+  };
+
+  const handleEditNoteClick = (note: TravelNote) => {
+    setEditingNoteId(note.id);
+    setNoteTitleInput(note.title);
+    setNoteContentInput(note.content);
+  };
+
+  const handleDeleteNote = (id: string) => {
+    if (confirm('Are you sure you want to delete this note?')) {
+      setTravelNotes(prev => prev.filter(n => n.id !== id));
+      if (editingNoteId === id) {
+        setEditingNoteId(null);
+        setNoteTitleInput('');
+        setNoteContentInput('');
+      }
+    }
+  };
+
+  // --- Travel Documents Handlers ---
+  const handleDocFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 2 * 1024 * 1024) {
+      alert("File is too large! Please upload files smaller than 2MB to keep performance fast.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      setDocFileName(file.name);
+      setDocFileType(file.type);
+      setDocFileContent(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSaveDocument = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!docTitleInput.trim()) return;
+
+    const timestamp = new Date().toLocaleString('en-IN', {
+      dateStyle: 'medium',
+      timeStyle: 'short'
+    });
+
+    const newDoc: TravelDocument = {
+      id: 'doc-' + generateId(),
+      title: docTitleInput.trim(),
+      category: docCategoryInput,
+      description: docDescriptionInput.trim() || undefined,
+      fileName: docFileName || undefined,
+      fileType: docFileType || undefined,
+      fileContent: docFileContent || undefined,
+      uploadedAt: timestamp
+    };
+
+    setTravelDocuments(prev => [newDoc, ...prev]);
+
+    setDocTitleInput('');
+    setDocCategoryInput('ticket');
+    setDocDescriptionInput('');
+    setDocFileName('');
+    setDocFileType('');
+    setDocFileContent('');
+  };
+
+  const handleDeleteDocument = (id: string) => {
+    if (confirm('Are you sure you want to delete this document from the vault?')) {
+      setTravelDocuments(prev => prev.filter(d => d.id !== id));
+    }
+  };
+
+  const handleDownloadTripHtml = () => {
+    if (!activeTrip) {
+      alert("Please generate a trip first!");
+      return;
+    }
+
+    const title = `Trippy Backup - ${activeTrip.destination}`;
+    
+    // Pre-render list variables to avoid nested template literal syntax issues
+    const itineraryHtml = activeTrip.itinerary.map(day => {
+      const activitiesHtml = day.activities.map(act => `
+        <div class="activity-item">
+          <div class="flex-between">
+            <span class="activity-time">${act.time}</span>
+            <span class="badge badge-${act.type}">${act.type}</span>
+          </div>
+          <div class="activity-title">${act.title} ${act.cost ? `• ₹${act.cost}` : ''}</div>
+          <p class="activity-desc">${act.description}</p>
+        </div>
+      `).join('');
+
+      return `
+        <div class="day-block">
+          <div class="day-title">Day ${day.dayNumber}: ${day.title}</div>
+          ${activitiesHtml}
+          ${day.budgetTip ? `<div style="font-size:12px; color:var(--warning); margin-bottom:12px;">💡 Tip: ${day.budgetTip}</div>` : ''}
+        </div>
+      `;
+    }).join('');
+
+    const scamsHtml = safetyReport ? safetyReport.commonScams.map(s => `<li>${s}</li>`).join('') : '';
+    
+    const safetyHtml = safetyReport ? `
+      <div style="font-size:14px; margin-bottom:12px;">
+        <strong>Safety Score:</strong> ${safetyReport.rating}/10
+      </div>
+      <div style="font-size:13px; margin-bottom:12px;">
+        <strong>Common Scams:</strong>
+        <ul>
+          ${scamsHtml}
+        </ul>
+      </div>
+      <div style="font-size:13px; margin-bottom:12px;">
+        <strong>Safe Neighborhoods:</strong> ${safetyReport.safeNeighborhoods.join(', ')}
+      </div>
+      <div style="font-size:13px;">
+        <strong>Unsafe Neighborhoods:</strong> ${safetyReport.unsafeNeighborhoods.join(', ')}
+      </div>
+    ` : '<p style="font-size:13px; color:var(--text-secondary);">No safety center briefing data cached.</p>';
+    
+    const packingHtml = activeTrip.packingList.map(item => `<li>${item}</li>`).join('');
+    
+    const checklistHtml = group.checklist.length > 0 ? group.checklist.map(item => `
+      <li style="${item.checked ? 'text-decoration: line-through; opacity:0.6;' : ''}">
+        ${item.text} ${item.assigneeName ? `(Assignee: ${item.assigneeName})` : ''}
+      </li>
+    `).join('') : '<li>No active checklists.</li>';
+
+    const expensesHtml = expenses.length > 0 ? expenses.map(exp => `
+      <div class="list-item flex-between">
+        <div>
+          <strong>${exp.title}</strong><br/>
+          <span style="font-size:11px; color:var(--text-secondary);">Paid by ${exp.paidBy}</span>
+        </div>
+        <strong>₹${exp.amount.toLocaleString('en-IN')}</strong>
+      </div>
+    `).join('') : '<p style="font-size:13px; color:var(--text-secondary);">No expenses recorded.</p>';
+
+    const settlementsHtml = settlementsList.length > 0 ? settlementsList.map(s => `
+      <li><strong>${s.from}</strong> owes <strong>${s.to}</strong>: ₹${s.amount.toLocaleString('en-IN')}</li>
+    `).join('') : '<li>🎉 All group expenses are fully settled!</li>';
+
+    const notesHtml = travelNotes.length > 0 ? travelNotes.map(n => `
+      <div style="margin-bottom:16px; border-bottom:1px solid var(--border); padding-bottom:12px;">
+        <strong style="font-size:14px; color:var(--text-primary);">${n.title}</strong>
+        <div class="note-content">${n.content}</div>
+        <span style="font-size:10px; color:var(--text-secondary); display:block; margin-top:4px;">Updated: ${n.updatedAt}</span>
+      </div>
+    `).join('') : '<p style="font-size:13px; color:var(--text-secondary);">No travel notes stored offline.</p>';
+
+    const documentsHtml = travelDocuments.length > 0 ? travelDocuments.map(d => {
+      let fileSectionHtml = '';
+      if (d.fileContent) {
+        if (d.fileType && d.fileType.startsWith('image/')) {
+          fileSectionHtml = `
+            <div class="doc-viewer">
+              <img src="${d.fileContent}" class="doc-preview-img" alt="${d.title}" />
+            </div>
+          `;
+        } else {
+          fileSectionHtml = `
+            <div class="doc-viewer">
+              <div style="font-size:11px; word-break:break-all; background:rgba(255,255,255,0.02); padding:10px; border-radius:6px; border:1px dashed var(--border);">
+                Document File Attached (${d.fileName || 'binary'})
+              </div>
+            </div>
+          `;
+        }
+      }
+
+      return `
+        <div style="margin-bottom:16px; border-bottom:1px solid var(--border); padding-bottom:12px;">
+          <div class="flex-between">
+            <strong style="font-size:14px; color:var(--text-primary);">${d.title}</strong>
+            <span class="badge" style="background:rgba(255,255,255,0.05); color:var(--warning);">${d.category}</span>
+          </div>
+          ${d.description ? `<p style="font-size:12px; color:var(--text-secondary); margin:4px 0;">${d.description}</p>` : ''}
+          ${fileSectionHtml}
+        </div>
+      `;
+    }).join('') : '<p style="font-size:13px; color:var(--text-secondary);">No digital tickets uploaded yet.</p>';
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${title}</title>
+  <style>
+    :root {
+      --bg-base: #08090c;
+      --bg-surface: #111319;
+      --border: rgba(255, 255, 255, 0.08);
+      --text-primary: #f3f4f6;
+      --text-secondary: #9ca3af;
+      --primary: #8b5cf6;
+      --primary-hover: #c084fc;
+      --accent: #10b981;
+      --warning: #fbbf24;
+      --danger: #ef4444;
+    }
+    body {
+      background-color: var(--bg-base);
+      color: var(--text-primary);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      margin: 0;
+      padding: 0;
+      line-height: 1.5;
+    }
+    .container {
+      max-width: 1000px;
+      margin: 40px auto;
+      padding: 20px;
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 40px;
+      padding: 30px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+    }
+    .header h1 {
+      margin: 0 0 10px;
+      background: linear-gradient(135deg, #c084fc 0%, #6366f1 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      font-size: 32px;
+    }
+    .header p {
+      color: var(--text-secondary);
+      margin: 0;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 24px;
+    }
+    @media(min-width: 768px) {
+      .grid-2col {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 24px;
+      }
+    }
+    .card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 24px;
+      margin-bottom: 24px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+    }
+    .card-title {
+      font-size: 18px;
+      font-weight: 600;
+      margin-top: 0;
+      margin-bottom: 16px;
+      color: var(--primary-hover);
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .activity-item {
+      padding: 12px;
+      border-left: 2px solid var(--primary);
+      background: rgba(255, 255, 255, 0.01);
+      margin-bottom: 12px;
+      border-radius: 0 8px 8px 0;
+    }
+    .activity-time {
+      font-size: 12px;
+      color: var(--primary-hover);
+      font-weight: bold;
+    }
+    .activity-title {
+      font-size: 14px;
+      font-weight: 600;
+      margin: 4px 0;
+    }
+    .activity-desc {
+      font-size: 13px;
+      color: var(--text-secondary);
+      margin: 0;
+    }
+    .day-block {
+      margin-bottom: 20px;
+    }
+    .day-title {
+      font-size: 16px;
+      font-weight: bold;
+      margin-bottom: 12px;
+      color: var(--text-primary);
+    }
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: bold;
+      text-transform: uppercase;
+      margin-left: 6px;
+    }
+    .badge-accommodation { background: rgba(139, 92, 246, 0.15); color: #c084fc; }
+    .badge-transport { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
+    .badge-food { background: rgba(16, 185, 129, 0.15); color: #34d399; }
+    .badge-sightseeing { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
+    .badge-shopping { background: rgba(236, 72, 153, 0.15); color: #f472b6; }
+    .badge-emergency { background: rgba(239, 68, 68, 0.15); color: #f87171; }
+    
+    .list-item {
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+    }
+    .list-item:last-child {
+      border-bottom: none;
+    }
+    .flex-between {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .note-content {
+      font-size: 13px;
+      color: var(--text-secondary);
+      white-space: pre-wrap;
+      background: rgba(0, 0, 0, 0.2);
+      padding: 12px;
+      border-radius: 8px;
+      margin-top: 8px;
+    }
+    .doc-viewer {
+      margin-top: 12px;
+    }
+    .doc-preview-img {
+      max-width: 100%;
+      max-height: 300px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      margin-top: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🌍 ${activeTrip.destination} Offline Backup</h1>
+      <p>Source: ${activeTrip.source} | Theme: ${activeTrip.tripType} | ${activeTrip.travelers} Travelers</p>
+      <p style="font-size: 12px; margin-top: 8px;">Generated on: ${new Date().toLocaleDateString('en-IN')}</p>
+    </div>
+
+    <div class="grid">
+      <!-- Itinerary Card -->
+      <div class="card">
+        <h3 class="card-title">📅 Itinerary Day-by-Day</h3>
+        ${itineraryHtml}
+      </div>
+
+      <!-- Grid for smaller sections -->
+      <div class="grid-2col">
+        <!-- Safety & Emergency Card -->
+        <div class="card">
+          <h3 class="card-title">🛡️ Safety Index & Emergency Details</h3>
+          ${safetyHtml}
+          
+          <div style="margin-top: 16px; border-top: 1px solid var(--border); padding-top: 12px;">
+            <strong style="font-size: 13px;">Emergency Contacts:</strong>
+            <p style="font-size: 12px; margin: 4px 0;">Custom: ${settings.emergencyContact || 'Not configured'}</p>
+            <p style="font-size: 12px; margin: 4px 0;">Local Police: 112 / 100</p>
+            <p style="font-size: 12px; margin: 4px 0;">Medical: 102 / 108</p>
+          </div>
+        </div>
+
+        <!-- Packing List & Checklist -->
+        <div class="card">
+          <h3 class="card-title">🎒 Packing & Checklist Assignments</h3>
+          <div style="margin-bottom:16px;">
+            <strong style="font-size:13px;">Suggested Packing List:</strong>
+            <ul style="font-size:12px; padding-left:16px; margin: 6px 0;">
+              ${packingHtml}
+            </ul>
+          </div>
+          <div>
+            <strong style="font-size:13px;">Active Checklist Tasks:</strong>
+            <ul style="font-size:12px; padding-left:16px; margin: 6px 0;">
+              ${checklistHtml}
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid-2col">
+        <!-- Expenses Splitter Card -->
+        <div class="card">
+          <h3 class="card-title">💸 Expense Ledger & Settlements</h3>
+          <div style="max-height: 250px; overflow-y: auto; margin-bottom: 12px;">
+            ${expensesHtml}
+          </div>
+          <div style="border-top:1px solid var(--border); padding-top:12px;">
+            <strong style="font-size:13px;">Active Dues to Clear:</strong>
+            <ul style="font-size:12px; padding-left:16px; margin:6px 0;">
+              ${settlementsHtml}
+            </ul>
+          </div>
+        </div>
+
+        <!-- Travel Notes Card -->
+        <div class="card">
+          <h3 class="card-title">📝 Offline Travel Notes</h3>
+          ${notesHtml}
+        </div>
+      </div>
+
+      <!-- Travel Documents & Reference tickets Card -->
+      <div class="card">
+        <h3 class="card-title">🎫 Digital Documents & Reference Tickets</h3>
+        ${documentsHtml}
+      </div>
+    </div>
+  </div>
+</body>
+</html>`;
+
+    const blob = new Blob([html], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${activeTrip.destination.replace(/[^a-zA-Z0-9]/g, '_')}_Offline_Trip.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   const handleLogout = () => {
     if (confirm('Are you sure you want to log out?')) {
       if (currentUser?.authProvider === 'cognito') {
@@ -1317,6 +1842,11 @@ export default function App() {
       localStorage.removeItem('trippy_chatbot_msgs');
       localStorage.removeItem('trippy_saved_trips');
       localStorage.removeItem('trippy_settings');
+      localStorage.removeItem('trippy_travel_notes');
+      localStorage.removeItem('trippy_travel_documents');
+      
+      setTravelNotes([]);
+      setTravelDocuments([]);
       
       // Reset settings
       setSettings(DEFAULT_SETTINGS);
@@ -2020,6 +2550,11 @@ export default function App() {
       localStorage.removeItem('trippy_chatbot_msgs');
       localStorage.removeItem('trippy_saved_trips');
       localStorage.removeItem('trippy_settings');
+      localStorage.removeItem('trippy_travel_notes');
+      localStorage.removeItem('trippy_travel_documents');
+
+      setTravelNotes([]);
+      setTravelDocuments([]);
 
       // Keep currentUser and isGuest intact
       setActiveTab('planner');
@@ -2512,11 +3047,24 @@ export default function App() {
               <span>Expenses</span>
             </li>
             <li 
-              className={`nav-item ${activeTab === 'chatbot' ? 'active' : ''}`}
-              onClick={() => { setActiveTab('chatbot'); setIsMobileMenuOpen(false); }}
+              className={`nav-item ${activeTab === 'offline' ? 'active' : ''}`}
+              onClick={() => { setActiveTab('offline'); setIsMobileMenuOpen(false); }}
+              style={{ position: 'relative' }}
             >
-              <MessageSquare size={18} />
-              <span>TripPilot AI</span>
+              <WifiOff size={18} />
+              <span>Offline Hub</span>
+              {!isOnline && (
+                <span style={{
+                  position: 'absolute',
+                  top: '6px',
+                  right: '6px',
+                  width: '6px',
+                  height: '6px',
+                  borderRadius: '50%',
+                  background: '#fbbf24',
+                  boxShadow: '0 0 6px #fbbf24'
+                }} />
+              )}
             </li>
             <li 
               className={`nav-item ${activeTab === 'settings' ? 'active' : ''}`}
@@ -2552,6 +3100,33 @@ export default function App() {
 
       {/* Main Panel Content */}
       <main className="main-content">
+        
+        {/* Offline Status Alert Banner */}
+        {!isOnline && (
+          <div 
+            className="glass-panel offline-banner" 
+            style={{ 
+              margin: '0 0 20px 0', 
+              padding: '12px 24px', 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '12px',
+              background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(239, 68, 68, 0.05))',
+              border: '1px solid rgba(245, 158, 11, 0.3)',
+              borderRadius: '12px',
+              color: '#fbbf24',
+              boxShadow: '0 0 15px rgba(245, 158, 11, 0.05)'
+            }}
+          >
+            <WifiOff size={18} />
+            <div>
+              <strong style={{ fontSize: '13px', color: '#fbbf24' }}>Offline Mode Active</strong>
+              <span style={{ fontSize: '12px', color: 'var(--text-secondary)', marginLeft: '8px' }}>
+                All features (itineraries, expenses, checklists, and notes) remain fully functional. Changes are saved locally.
+              </span>
+            </div>
+          </div>
+        )}
         
         {/* Notification Permission Bar */}
         {notificationPermission === 'default' && (
@@ -3990,88 +4565,7 @@ export default function App() {
           </div>
         )}
 
-        {/* Tab 5: TRIP COMPANION CHATBOT */}
-        {activeTab === 'chatbot' && (
-          <div>
-            <div className="panel-header">
-              <h1 className="panel-title">💬 TripPilot AI Assistant</h1>
-              <p className="panel-subtitle">Chat with a travel planner assistant. It knows your destination, dates, and settings.</p>
-            </div>
 
-            <div className="glass-card" style={{ padding: 0 }}>
-              <div className="chat-container">
-                
-                {/* Chat Message Box */}
-                <div className="chat-history">
-                  {chatbotMessages.map(msg => (
-                    <div 
-                      key={msg.id} 
-                      className={`chat-msg ${msg.isAI ? 'chat-msg-ai' : 'chat-msg-user'}`}
-                    >
-                      <strong style={{ fontSize: '11px', display: 'block', marginBottom: '4px', color: msg.isAI ? 'var(--primary-hover)' : 'rgba(255, 255, 255, 0.8)' }}>
-                        {msg.sender}
-                      </strong>
-                      <div style={{ whiteSpace: 'pre-wrap' }}>
-                        {msg.isAI ? renderFormattedMessageText(msg.text) : msg.text}
-                      </div>
-                      <div className="chat-msg-time">{msg.timestamp}</div>
-                    </div>
-                  ))}
-                  
-                  {botLoading && (
-                    <div className="chat-msg chat-msg-ai">
-                      <strong style={{ fontSize: '11px', display: 'block', color: 'var(--primary-hover)' }}>TripPilot</strong>
-                      <div style={{ display: 'flex', gap: '4px', alignItems: 'center', height: '20px' }}>
-                        <span className="dot animate-pulse">●</span>
-                        <span className="dot animate-pulse" style={{ animationDelay: '0.2s' }}>●</span>
-                        <span className="dot animate-pulse" style={{ animationDelay: '0.4s' }}>●</span>
-                      </div>
-                    </div>
-                  )}
-                  <div ref={chatEndRef} />
-                </div>
-
-                {/* Quick Chips suggestions */}
-                <div className="chat-chips">
-                  <div className="chat-chip" onClick={() => handleSendChatbot(undefined, "Is UPI accepted widely here?")}>
-                    💳 UPI acceptance?
-                  </div>
-                  <div className="chat-chip" onClick={() => handleSendChatbot(undefined, "What is the temple dress code?")}>
-                    🛕 Temple dress code?
-                  </div>
-                  <div className="chat-chip" onClick={() => handleSendChatbot(undefined, "What are tipping standards?")}>
-                    🪙 Tipping guidelines?
-                  </div>
-                  {activeTrip && (
-                    <div className="chat-chip" onClick={() => handleSendChatbot(undefined, `How can I save costs on my ₹${activeTrip.budgetLimit} budget?`)}>
-                      💸 Budget tips
-                    </div>
-                  )}
-                </div>
-
-                {/* Input form */}
-                <form onSubmit={(e) => handleSendChatbot(e)} className="chat-input-area">
-                  <input 
-                    type="text" 
-                    placeholder="Ask TripPilot travel questions..." 
-                    value={botQuery}
-                    onChange={(e) => setBotQuery(e.target.value)}
-                    disabled={botLoading}
-                  />
-                  <button 
-                    type="submit" 
-                    className="btn btn-primary" 
-                    style={{ padding: '12px' }}
-                    disabled={botLoading}
-                  >
-                    <Send size={16} />
-                  </button>
-                </form>
-
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* Tab 6: SETTINGS */}
         {activeTab === 'settings' && (
@@ -4226,6 +4720,443 @@ export default function App() {
           </div>
         )}
 
+        {/* Tab 7: OFFLINE HUB */}
+        {activeTab === 'offline' && (
+          <div>
+            <div className="panel-header">
+              <h1 className="panel-title" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <WifiOff size={32} style={{ color: isOnline ? 'var(--text-secondary)' : '#fbbf24' }} />
+                <span>Offline Hub & Backup Tool</span>
+              </h1>
+              <p className="panel-subtitle">Manage notes, tickets, and download your entire trip cache for off-grid travel.</p>
+            </div>
+
+            {/* Offline Promotion & Connection Alert */}
+            <div className="glass-card" style={{ padding: '20px', marginBottom: '24px', position: 'relative', overflow: 'hidden' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                <div style={{
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '50%',
+                  background: isOnline ? 'rgba(16, 185, 129, 0.1)' : 'rgba(245, 158, 11, 0.1)',
+                  color: isOnline ? '#10b981' : '#fbbf24',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontWeight: 'bold',
+                  position: 'relative'
+                }}>
+                  <div style={{
+                    width: '10px',
+                    height: '10px',
+                    borderRadius: '50%',
+                    background: isOnline ? '#10b981' : '#fbbf24',
+                    position: 'absolute',
+                    top: '0',
+                    right: '0',
+                    boxShadow: isOnline ? '0 0 8px #10b981' : '0 0 8px #fbbf24',
+                  }}></div>
+                  {isOnline ? 'ON' : 'OFF'}
+                </div>
+                <div>
+                  <h3 style={{ fontSize: '16px', fontWeight: 600, margin: '0 0 4px' }}>
+                    {isOnline ? 'Online - Live Cloud Sync Connected' : 'Offline Mode Active - Saved Locally'}
+                  </h3>
+                  <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)', margin: 0 }}>
+                    {isOnline 
+                      ? 'You are online. Your data is synced with cloud peers. You can edit notes and tickets, which will remain cached offline.' 
+                      : 'You are completely offline. You can still modify itineraries, add expenses, view checklists, write notes, and access stored tickets.'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Downloader Section */}
+            <div className="glass-card" style={{ padding: '24px', marginBottom: '24px', borderLeft: '4px solid var(--primary)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+                <div style={{ flex: '1 1 500px' }}>
+                  <h3 style={{ fontSize: '18px', fontWeight: 600, margin: '0 0 6px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Download size={18} style={{ color: 'var(--primary-hover)' }} />
+                    <span>Download Entire Trip for Offline Safety Backup</span>
+                  </h3>
+                  <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.5 }}>
+                    Export a standalone, single-file interactive HTML dashboard containing your day-by-day itineraries, group checklist tasks, packing gear lists, safety reports, emergency contact indices, expense settlements, travel notes, and ticket attachments. Put it on your phone for airplane mode or remote travel.
+                  </p>
+                </div>
+                <button 
+                  onClick={handleDownloadTripHtml}
+                  className="btn btn-primary"
+                  style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 24px', fontSize: '14px', whiteSpace: 'nowrap' }}
+                  disabled={!activeTrip}
+                >
+                  <Download size={16} />
+                  <span>Download Backup HTML</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Offline Hub Split Layout */}
+            <div className="grid-2col" style={{ alignItems: 'start' }}>
+              
+              {/* Left Column: Travel Notes Manager */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                <div className="glass-card">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '12px', marginBottom: '16px' }}>
+                    <h3 style={{ margin: 0, fontSize: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <FileText size={18} style={{ color: 'var(--accent)' }} />
+                      <span>Travel Notes & Diary Entries</span>
+                    </h3>
+                    <span className="badge" style={{ background: 'rgba(255,255,255,0.05)', color: 'var(--text-primary)' }}>
+                      {travelNotes.length} notes
+                    </span>
+                  </div>
+
+                  {/* Notes Editor Form */}
+                  <form onSubmit={handleSaveNote} style={{ marginBottom: '24px', background: 'rgba(255,255,255,0.01)', padding: '16px', borderRadius: '12px', border: '1px dashed var(--border)' }}>
+                    <h4 style={{ margin: '0 0 12px', fontSize: '13px', color: 'var(--text-primary)' }}>
+                      {editingNoteId ? '✏️ Edit Note' : '➕ Create Travel Note'}
+                    </h4>
+                    <div className="form-group" style={{ marginBottom: '12px' }}>
+                      <label style={{ fontSize: '11px' }}>Note Title</label>
+                      <input 
+                        type="text" 
+                        value={noteTitleInput} 
+                        onChange={(e) => setNoteTitleInput(e.target.value)} 
+                        placeholder="e.g. Hotel Wifi Code, Taxi rates, Room reservation..." 
+                        required 
+                        style={{ padding: '8px 12px', fontSize: '13px' }}
+                      />
+                    </div>
+                    <div className="form-group" style={{ marginBottom: '12px' }}>
+                      <label style={{ fontSize: '11px' }}>Note Content</label>
+                      <textarea 
+                        value={noteContentInput} 
+                        onChange={(e) => setNoteContentInput(e.target.value)} 
+                        placeholder="Type note details here..." 
+                        required 
+                        rows={4}
+                        style={{ padding: '8px 12px', fontSize: '13px' }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                      {editingNoteId && (
+                        <button 
+                          type="button" 
+                          className="btn btn-secondary btn-sm"
+                          style={{ padding: '6px 12px' }}
+                          onClick={() => {
+                            setEditingNoteId(null);
+                            setNoteTitleInput('');
+                            setNoteContentInput('');
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      )}
+                      <button type="submit" className="btn btn-primary btn-sm" style={{ padding: '6px 16px' }}>
+                        {editingNoteId ? 'Update' : 'Save Note'}
+                      </button>
+                    </div>
+                  </form>
+
+                  {/* Notes List */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '350px', overflowY: 'auto' }}>
+                    {travelNotes.length === 0 ? (
+                      <p style={{ textAlign: 'center', fontSize: '13px', color: 'var(--text-secondary)', padding: '20px' }}>
+                        No offline travel notes recorded. Write codes, hotel directions, or details above.
+                      </p>
+                    ) : (
+                      travelNotes.map(note => (
+                        <div key={note.id} className="glass-card" style={{ padding: '14px', background: 'rgba(0,0,0,0.15)' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                            <strong style={{ fontSize: '14px', color: 'var(--text-primary)' }}>{note.title}</strong>
+                            <div style={{ display: 'flex', gap: '6px' }}>
+                              <button 
+                                type="button"
+                                className="btn btn-secondary btn-sm" 
+                                style={{ padding: '4px', minWidth: '24px', height: '24px' }}
+                                onClick={() => handleEditNoteClick(note)}
+                                title="Edit Note"
+                              >
+                                <Edit2 size={12} />
+                              </button>
+                              <button 
+                                type="button"
+                                className="btn btn-secondary btn-sm" 
+                                style={{ padding: '4px', minWidth: '24px', height: '24px' }}
+                                onClick={() => handleDeleteNote(note.id)}
+                                title="Delete Note"
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            </div>
+                          </div>
+                          <p style={{ fontSize: '13px', color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', margin: '0 0 8px', lineHeight: 1.4 }}>
+                            {note.content}
+                          </p>
+                          <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+                            Updated: {note.updatedAt}
+                          </span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Right Column: Digital Tickets Vault & Cached AI Summaries */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                
+                {/* Tickets & Documents Vault */}
+                <div className="glass-card">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '12px', marginBottom: '16px' }}>
+                    <h3 style={{ margin: 0, fontSize: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Shield size={18} style={{ color: 'var(--warning)' }} />
+                      <span>Digital Tickets & Documents Vault</span>
+                    </h3>
+                    <span className="badge" style={{ background: 'rgba(255,255,255,0.05)', color: 'var(--text-primary)' }}>
+                      {travelDocuments.length} docs
+                    </span>
+                  </div>
+
+                  {/* Document Upload Form */}
+                  <form onSubmit={handleSaveDocument} style={{ marginBottom: '24px', background: 'rgba(255,255,255,0.01)', padding: '16px', borderRadius: '12px', border: '1px dashed var(--border)' }}>
+                    <h4 style={{ margin: '0 0 12px', fontSize: '13px', color: 'var(--text-primary)' }}>
+                      ➕ Add Document/Ticket
+                    </h4>
+                    
+                    <div className="form-row" style={{ gap: '12px', marginBottom: '12px' }}>
+                      <div className="form-group" style={{ marginBottom: 0 }}>
+                        <label style={{ fontSize: '11px' }}>Title</label>
+                        <input 
+                          type="text" 
+                          value={docTitleInput} 
+                          onChange={(e) => setDocTitleInput(e.target.value)} 
+                          placeholder="e.g. Flight ticket PDF, Boarding Pass..." 
+                          required 
+                          style={{ padding: '8px 12px', fontSize: '13px' }}
+                        />
+                      </div>
+                      <div className="form-group" style={{ marginBottom: 0 }}>
+                        <label style={{ fontSize: '11px' }}>Category</label>
+                        <select 
+                          value={docCategoryInput} 
+                          onChange={(e) => setDocCategoryInput(e.target.value as TravelDocument['category'])}
+                          style={{ padding: '8px 12px', fontSize: '13px' }}
+                        >
+                          <option value="ticket">Ticket 🎫</option>
+                          <option value="hotel">Hotel Voucher 🏨</option>
+                          <option value="id">Identification ID 🪪</option>
+                          <option value="other">Other Reference 📁</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="form-group" style={{ marginBottom: '12px' }}>
+                      <label style={{ fontSize: '11px' }}>Notes / Ref Codes (Optional)</label>
+                      <input 
+                        type="text" 
+                        value={docDescriptionInput} 
+                        onChange={(e) => setDocDescriptionInput(e.target.value)} 
+                        placeholder="e.g. Flight 6E-2412, Confirmation: G1J3L9..." 
+                        style={{ padding: '8px 12px', fontSize: '13px' }}
+                      />
+                    </div>
+
+                    <div className="form-group" style={{ marginBottom: '12px' }}>
+                      <label style={{ fontSize: '11px' }}>Upload Image/Ticket (Max 2MB)</label>
+                      <input 
+                        type="file" 
+                        accept="image/*" 
+                        onChange={handleDocFileChange} 
+                        style={{ padding: '8px', fontSize: '12px' }}
+                      />
+                      {docFileName && (
+                        <span style={{ fontSize: '11px', color: '#10b981', marginTop: '4px' }}>
+                          ✓ Attached: {docFileName}
+                        </span>
+                      )}
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                      <button type="submit" className="btn btn-primary btn-sm" style={{ padding: '6px 16px' }}>
+                        Store in Vault
+                      </button>
+                    </div>
+                  </form>
+
+                  {/* Documents List */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '350px', overflowY: 'auto' }}>
+                    {travelDocuments.length === 0 ? (
+                      <p style={{ textAlign: 'center', fontSize: '13px', color: 'var(--text-secondary)', padding: '20px' }}>
+                        No local digital documents stored. Upload images of tickets/IDs to keep them available offline.
+                      </p>
+                    ) : (
+                      travelDocuments.map(doc => (
+                        <div key={doc.id} className="glass-card" style={{ padding: '14px', background: 'rgba(0,0,0,0.15)' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
+                            <div>
+                              <strong style={{ fontSize: '14px', color: 'var(--text-primary)' }}>{doc.title}</strong>
+                              <span className="badge" style={{ marginLeft: '8px', fontSize: '9px', background: 'rgba(255,255,255,0.05)', color: 'var(--warning)' }}>
+                                {doc.category}
+                              </span>
+                            </div>
+                            <button 
+                              className="btn btn-secondary btn-sm" 
+                              style={{ padding: '4px', minWidth: '24px', height: '24px' }}
+                              onClick={() => handleDeleteDocument(doc.id)}
+                              title="Delete Document"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                          {doc.description && (
+                            <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)', margin: '0 0 10px', lineHeight: 1.4 }}>
+                              {doc.description}
+                            </p>
+                          )}
+                          {doc.fileContent && (
+                            <div style={{ marginTop: '8px', background: 'rgba(0,0,0,0.2)', padding: '10px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                              {doc.fileType?.startsWith('image/') ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                  <img 
+                                    src={doc.fileContent} 
+                                    alt={doc.title} 
+                                    style={{ maxWidth: '100%', maxHeight: '200px', borderRadius: '6px', objectFit: 'contain' }} 
+                                  />
+                                  <a 
+                                    href={doc.fileContent} 
+                                    download={doc.fileName || 'ticket.png'}
+                                    className="btn btn-secondary btn-sm"
+                                    style={{ alignSelf: 'flex-start', fontSize: '11px', padding: '4px 10px' }}
+                                  >
+                                    View Full Image
+                                  </a>
+                                </div>
+                              ) : (
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{doc.fileName}</span>
+                                  <a 
+                                    href={doc.fileContent} 
+                                    download={doc.fileName || 'document'} 
+                                    className="btn btn-secondary btn-sm"
+                                    style={{ fontSize: '11px', padding: '4px 10px' }}
+                                  >
+                                    Download Attached File
+                                  </a>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '8px' }}>
+                            Uploaded: {doc.uploadedAt}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                {/* Offline Expense Splitter Widget */}
+                <div className="glass-card">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '12px', marginBottom: '16px' }}>
+                    <h3 style={{ margin: 0, fontSize: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <TrendingUp size={18} style={{ color: 'var(--accent)' }} />
+                      <span>Offline Expense Splitter</span>
+                    </h3>
+                    <button 
+                      className="btn btn-secondary btn-sm" 
+                      style={{ fontSize: '11px', padding: '4px 10px', height: 'auto' }}
+                      onClick={() => setActiveTab('expenses')}
+                    >
+                      Go to Splitter
+                    </button>
+                  </div>
+                  <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)', marginBottom: '16px', lineHeight: 1.4 }}>
+                    Trippy expense manager splits group dues and balances 100% locally. Add bills offline; they sync with peer devices once you reconnect.
+                  </p>
+                  
+                  {/* Settlement list summary inside Hub */}
+                  <div style={{ background: 'rgba(0,0,0,0.15)', borderRadius: '12px', padding: '14px', border: '1px solid var(--border)' }}>
+                    <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '8px' }}>
+                      Active Dues Ledger:
+                    </div>
+                    {settlementsList.length === 0 ? (
+                      <div style={{ fontSize: '12px', color: '#10b981', textAlign: 'center', padding: '10px' }}>
+                        🎉 All group expenses are fully settled up!
+                      </div>
+                    ) : (
+                      <ul style={{ paddingLeft: '16px', margin: 0, display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12px' }}>
+                        {settlementsList.slice(0, 3).map((s, idx) => (
+                          <li key={idx}>
+                            <strong>{s.from}</strong> owes <strong>{s.to}</strong>: <span style={{ color: 'var(--accent)' }}>₹{s.amount.toLocaleString('en-IN')}</span>
+                          </li>
+                        ))}
+                        {settlementsList.length > 3 && (
+                          <li style={{ listStyleType: 'none', color: 'var(--text-muted)', fontSize: '11px', marginTop: '4px' }}>
+                            + {settlementsList.length - 3} more dues. Go to expenses to view all.
+                          </li>
+                        )}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+
+                {/* Cached AI Summaries & Briefings Panel */}
+                <div className="glass-card">
+                  <div style={{ borderBottom: '1px solid var(--border)', paddingBottom: '12px', marginBottom: '16px' }}>
+                    <h3 style={{ margin: 0, fontSize: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Sparkles size={18} style={{ color: 'var(--primary-hover)' }} />
+                      <span>Cached AI Summaries & Briefings</span>
+                    </h3>
+                  </div>
+
+                  {activeTrip ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                      <div>
+                        <strong style={{ fontSize: '13px', color: 'var(--text-primary)' }}>📍 Trip Destination Briefing:</strong>
+                        <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: '4px 0 0', lineHeight: 1.4 }}>
+                          Day-by-day plans are cached. Highlights: {activeTrip.itinerary[0]?.title || 'Itinerary detail'}.
+                          Theme is {activeTrip.tripType} scale with {activeTrip.packingList?.length || 0} suggested packing items.
+                        </p>
+                      </div>
+                      
+                      {safetyReport && (
+                        <div>
+                          <strong style={{ fontSize: '13px', color: 'var(--text-primary)' }}>🛡️ Cached Safety Alerts:</strong>
+                          <ul style={{ fontSize: '12px', paddingLeft: '16px', margin: '4px 0 0', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            <li>Safety Index: {safetyReport.rating}/10</li>
+                            {safetyReport.commonScams[0] && <li>Scam warning: {safetyReport.commonScams[0]}</li>}
+                          </ul>
+                        </div>
+                      )}
+
+                      {chatbotMessages.length > 1 && (
+                        <div>
+                          <strong style={{ fontSize: '13px', color: 'var(--text-primary)' }}>💬 Last TripPilot Conversation:</strong>
+                          <div style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: '4px 0 0', padding: '8px 10px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '6px', border: '1px solid var(--border)' }}>
+                            {(() => {
+                              const aiMsgs = chatbotMessages.filter(m => m.isAI);
+                              const lastMsg = aiMsgs[aiMsgs.length - 1];
+                              return lastMsg ? `"${lastMsg.text.slice(0, 100)}..."` : 'No chatbot conversation cached.';
+                            })()}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <p style={{ textAlign: 'center', fontSize: '13px', color: 'var(--text-secondary)', padding: '10px' }}>
+                      No generated trip in system. Cash summary will load once a trip is generated.
+                    </p>
+                  )}
+                </div>
+
+              </div>
+
+            </div>
+          </div>
+        )}
+
       </main>
 
       {/* UPI QR Payment Modal */}
@@ -4273,6 +5204,212 @@ export default function App() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Floating chatbot button and panel */}
+      {(currentUser || isGuest) && (
+        <>
+          {/* Floating Action Button */}
+          <button 
+            className={`floating-chatbot-btn ${isChatOpen ? 'active' : ''}`}
+            onClick={() => setIsChatOpen(!isChatOpen)}
+            title="Chat with TripPilot AI"
+            style={{
+              position: 'fixed',
+              bottom: '24px',
+              right: '24px',
+              width: '56px',
+              height: '56px',
+              borderRadius: '50%',
+              background: 'linear-gradient(135deg, #a78bfa 0%, #6366f1 100%)',
+              color: 'white',
+              border: '1px solid rgba(255, 255, 255, 0.25)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              zIndex: 999,
+              boxShadow: '0 8px 32px rgba(139, 92, 246, 0.4), inset 0 1px 0 rgba(255,255,255,0.35)',
+              transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+            }}
+          >
+            {isChatOpen ? (
+              <X size={22} />
+            ) : (
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ filter: 'drop-shadow(0 2px 6px rgba(139, 92, 246, 0.3))' }}>
+                <path d="M12 3C12 7.97 7.97 12 3 12C7.97 12 12 16.03 12 21C12 16.03 16.03 12 21 12C16.03 12 12 7.97 12 3Z" fill="url(#ai-grad)" />
+                <path d="M19 3C19 4.66 17.66 6 16 6C17.66 6 19 7.34 19 9C19 7.34 20.34 6 22 6C20.34 6 19 4.66 19 3Z" fill="url(#ai-grad-small)" />
+                <defs>
+                  <linearGradient id="ai-grad" x1="3" y1="3" x2="21" y2="21" gradientUnits="userSpaceOnUse">
+                    <stop offset="0%" stopColor="#ffffff" />
+                    <stop offset="100%" stopColor="#d8b4fe" />
+                  </linearGradient>
+                  <linearGradient id="ai-grad-small" x1="16" y1="3" x2="22" y2="9" gradientUnits="userSpaceOnUse">
+                    <stop offset="0%" stopColor="#fef08a" />
+                    <stop offset="100%" stopColor="#fbbf24" />
+                  </linearGradient>
+                </defs>
+              </svg>
+            )}
+            {!isChatOpen && (
+              <span className="notification-glow" style={{
+                position: 'absolute',
+                top: '-2px',
+                right: '-2px',
+                width: '12px',
+                height: '12px',
+                borderRadius: '50%',
+                background: '#fbbf24',
+                boxShadow: '0 0 8px #fbbf24',
+              }} />
+            )}
+          </button>
+
+          {/* Chatbot Popover Panel */}
+          {isChatOpen && (
+            <div 
+              className="floating-chatbot-panel glass-panel"
+              style={{
+                position: 'fixed',
+                bottom: '96px',
+                right: '24px',
+                width: '380px',
+                height: '520px',
+                borderRadius: '20px',
+                zIndex: 998,
+                display: 'flex',
+                flexDirection: 'column',
+                boxShadow: '0 20px 40px rgba(0, 0, 0, 0.5), inset 0 0 20px rgba(255, 255, 255, 0.02)',
+                border: '1px solid var(--border)',
+                overflow: 'hidden',
+                background: 'var(--bg-surface-glass)',
+                backdropFilter: 'blur(20px)',
+                WebkitBackdropFilter: 'blur(20px)',
+              }}
+            >
+              {/* Header */}
+              <div 
+                style={{ 
+                  padding: '16px 20px', 
+                  borderBottom: '1px solid var(--border)', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'space-between',
+                  background: 'rgba(139, 92, 246, 0.05)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div style={{ position: 'relative', display: 'flex' }}>
+                    <MessageSquare size={18} style={{ color: 'var(--primary-hover)' }} />
+                    <span style={{
+                      position: 'absolute',
+                      bottom: '-2px',
+                      right: '-2px',
+                      width: '6px',
+                      height: '6px',
+                      borderRadius: '50%',
+                      background: '#10b981',
+                      boxShadow: '0 0 4px #10b981'
+                    }} />
+                  </div>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>TripPilot AI</h3>
+                    <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Travel Assistant</span>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setIsChatOpen(false)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--text-secondary)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    padding: '4px',
+                    borderRadius: '50%',
+                    transition: 'background 0.2s',
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)'}
+                  onMouseLeave={(e) => e.currentTarget.style.background = 'none'}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {/* Chat Container */}
+              <div className="chat-container" style={{ flex: 1, display: 'flex', flexDirection: 'column', height: 'calc(100% - 60px)', overflow: 'hidden' }}>
+                {/* Chat Message Box */}
+                <div className="chat-history" style={{ flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {chatbotMessages.map(msg => (
+                    <div 
+                      key={msg.id} 
+                      className={`chat-msg ${msg.isAI ? 'chat-msg-ai' : 'chat-msg-user'}`}
+                    >
+                      <strong style={{ fontSize: '11px', display: 'block', marginBottom: '4px', color: msg.isAI ? 'var(--primary-hover)' : 'rgba(255, 255, 255, 0.8)' }}>
+                        {msg.sender}
+                      </strong>
+                      <div style={{ whiteSpace: 'pre-wrap', fontSize: '12.5px', lineHeight: 1.4 }}>
+                        {msg.isAI ? renderFormattedMessageText(msg.text) : msg.text}
+                      </div>
+                      <div className="chat-msg-time">{msg.timestamp}</div>
+                    </div>
+                  ))}
+                  
+                  {botLoading && (
+                    <div className="chat-msg chat-msg-ai">
+                      <strong style={{ fontSize: '11px', display: 'block', color: 'var(--primary-hover)' }}>TripPilot</strong>
+                      <div style={{ display: 'flex', gap: '4px', alignItems: 'center', height: '20px' }}>
+                        <span className="dot animate-pulse">●</span>
+                        <span className="dot animate-pulse" style={{ animationDelay: '0.2s' }}>●</span>
+                        <span className="dot animate-pulse" style={{ animationDelay: '0.4s' }}>●</span>
+                      </div>
+                    </div>
+                  )}
+                  <div ref={chatEndRef} />
+                </div>
+
+                {/* Quick Chips suggestions */}
+                <div className="chat-chips" style={{ padding: '8px 16px', display: 'flex', gap: '6px', overflowX: 'auto', flexShrink: 0, whiteSpace: 'nowrap', borderTop: '1px solid var(--border)', background: 'rgba(0,0,0,0.1)' }}>
+                  <div className="chat-chip" style={{ fontSize: '11px', padding: '4px 10px' }} onClick={() => handleSendChatbot(undefined, "Is UPI accepted widely here?")}>
+                    💳 UPI?
+                  </div>
+                  <div className="chat-chip" style={{ fontSize: '11px', padding: '4px 10px' }} onClick={() => handleSendChatbot(undefined, "What is the temple dress code?")}>
+                    🛕 Dress code?
+                  </div>
+                  <div className="chat-chip" style={{ fontSize: '11px', padding: '4px 10px' }} onClick={() => handleSendChatbot(undefined, "What are tipping standards?")}>
+                    🪙 Tipping?
+                  </div>
+                  {activeTrip && (
+                    <div className="chat-chip" style={{ fontSize: '11px', padding: '4px 10px' }} onClick={() => handleSendChatbot(undefined, `How can I save costs on my ₹${activeTrip.budgetLimit} budget?`)}>
+                      💸 Budget tips
+                    </div>
+                  )}
+                </div>
+
+                {/* Input form */}
+                <form onSubmit={(e) => handleSendChatbot(e)} className="chat-input-area" style={{ padding: '12px 16px', borderTop: '1px solid var(--border)' }}>
+                  <input 
+                    type="text" 
+                    placeholder="Ask TripPilot travel questions..." 
+                    value={botQuery}
+                    onChange={(e) => setBotQuery(e.target.value)}
+                    disabled={botLoading}
+                    style={{ padding: '10px 14px', fontSize: '12.5px' }}
+                  />
+                  <button 
+                    type="submit" 
+                    className="btn btn-primary" 
+                    style={{ padding: '10px' }}
+                    disabled={botLoading}
+                  >
+                    <Send size={14} />
+                  </button>
+                </form>
+              </div>
+
+            </div>
+          )}
+        </>
       )}
 
     </div>
