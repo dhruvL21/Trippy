@@ -228,8 +228,7 @@ export default function App() {
   });
 
   const [chatbotMessages, setChatbotMessages] = useState<ChatMessage[]>(() => {
-    const isG = localStorage.getItem('trippy_is_guest') === 'true';
-    const welcomeMsgs = [
+    return [
       {
         id: 'welcome',
         sender: 'TripPilot',
@@ -238,10 +237,6 @@ export default function App() {
         isAI: true
       }
     ];
-    if (isG) return welcomeMsgs;
-    const saved = localStorage.getItem('trippy_chatbot_msgs');
-    if (saved) return JSON.parse(saved);
-    return welcomeMsgs;
   });
 
   const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
@@ -295,6 +290,8 @@ export default function App() {
   const [tripType, setTripType] = useState('Leisure');
   const [accommodationPreference, setAccommodationPreference] = useState('Standard');
   const [transportPreference, setTransportPreference] = useState('train');
+  const [selectedLodgingOpt, setSelectedLodgingOpt] = useState<string | null>(null);
+  const [selectedTransitOpt, setSelectedTransitOpt] = useState<string | null>(null);
   const [selectedInterests, setSelectedInterests] = useState<string[]>(['beaches', 'food', 'nightlife']);
 
   // Settings Temp States
@@ -437,6 +434,18 @@ export default function App() {
         checklist: updatedChecklist
       };
     });
+
+    // Clear and reset chatbot messages to welcome state on login/signin
+    localStorage.removeItem('trippy_chatbot_msgs');
+    setChatbotMessages([
+      {
+        id: 'welcome',
+        sender: 'TripPilot',
+        text: `Hi there! I am your AI Travel Companion. 🗺️\n\nGenerate a trip in the **Trip Planner** tab, and I will instantly know the details to help you out!\n\nFeel free to ask me questions like:\n* *"Is UPI accepted widely in Goa?"*\n* *"What is the temple dress code in Jaipur?"*\n* *"How can I cut costs on transport?"*`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        isAI: true
+      }
+    ]);
   }, []);
 
   // --- OAuth Callback Redirect Parser ---
@@ -504,6 +513,11 @@ export default function App() {
   }, [activeTrip, isGuest]);
 
   useEffect(() => {
+    setSelectedLodgingOpt(null);
+    setSelectedTransitOpt(null);
+  }, [activeTrip?.id]);
+
+  useEffect(() => {
     if (isGuest) return;
     localStorage.setItem('trippy_safety_report', safetyReport ? JSON.stringify(safetyReport) : '');
   }, [safetyReport, isGuest]);
@@ -517,11 +531,6 @@ export default function App() {
     if (isGuest) return;
     localStorage.setItem('trippy_expenses', JSON.stringify(expenses));
   }, [expenses, isGuest]);
-
-  useEffect(() => {
-    if (isGuest) return;
-    localStorage.setItem('trippy_chatbot_msgs', JSON.stringify(chatbotMessages));
-  }, [chatbotMessages, isGuest]);
 
   useEffect(() => {
     if (isGuest) return;
@@ -2140,12 +2149,13 @@ export default function App() {
     const daysCount = itinerary.length;
     const roomsCount = Math.ceil(travelers / 2);
 
-    const suggestions: { text: string; newAccPref: string; newTransPref: string; savings: number }[] = [];
+    const suggestions: { type: 'lodging' | 'transit'; text: string; newAccPref: string; newTransPref: string; savings: number }[] = [];
 
     if (accommodationPreference === 'Luxury') {
       const savingsPerNight = (6000 - 2500) * roomsCount;
       const totalSavings = savingsPerNight * daysCount;
       suggestions.push({
+        type: 'lodging',
         text: `Switch lodging from Luxury Resort to Standard Hotel (saves ₹${savingsPerNight.toLocaleString('en-IN')}/day, total ₹${totalSavings.toLocaleString('en-IN')} savings)`,
         newAccPref: 'Standard',
         newTransPref: transportPreference,
@@ -2155,6 +2165,7 @@ export default function App() {
       const savingsPerNight = (2500 - 900) * roomsCount;
       const totalSavings = savingsPerNight * daysCount;
       suggestions.push({
+        type: 'lodging',
         text: `Switch lodging from Standard Hotel to Hostel/HomeStay (saves ₹${savingsPerNight.toLocaleString('en-IN')}/day, total ₹${totalSavings.toLocaleString('en-IN')} savings)`,
         newAccPref: 'Budget',
         newTransPref: transportPreference,
@@ -2165,6 +2176,7 @@ export default function App() {
     if (transportPreference === 'flight') {
       const savingsTrain = (4500 - 850) * travelers;
       suggestions.push({
+        type: 'transit',
         text: `Switch transit from Flight to Train (saves ₹3,650 per person, total ₹${savingsTrain.toLocaleString('en-IN')} savings)`,
         newAccPref: accommodationPreference,
         newTransPref: 'train',
@@ -2173,6 +2185,7 @@ export default function App() {
 
       const savingsCab = (4500 - 2500) * travelers;
       suggestions.push({
+        type: 'transit',
         text: `Switch transit from Flight to Rental Cab/Bus (saves ₹2,000 per person, total ₹${savingsCab.toLocaleString('en-IN')} savings)`,
         newAccPref: accommodationPreference,
         newTransPref: 'cab',
@@ -2182,6 +2195,7 @@ export default function App() {
       const savingsPerPerson = 2500 - 850;
       const totalSavings = savingsPerPerson * travelers;
       suggestions.push({
+        type: 'transit',
         text: `Switch transit from Rental Cab/Bus to Train (saves ₹${savingsPerPerson.toLocaleString('en-IN')} per person, total ₹${totalSavings.toLocaleString('en-IN')} savings)`,
         newAccPref: accommodationPreference,
         newTransPref: 'train',
@@ -2190,6 +2204,26 @@ export default function App() {
     }
 
     return suggestions.sort((a, b) => b.savings - a.savings);
+  };
+
+  const getSelectedSavings = () => {
+    let totalSavings = 0;
+    const suggestions = getBudgetOptimizationSuggestions();
+    suggestions.forEach(s => {
+      if (s.type === 'lodging' && selectedLodgingOpt === s.newAccPref) {
+        totalSavings += s.savings;
+      }
+      if (s.type === 'transit' && selectedTransitOpt === s.newTransPref) {
+        totalSavings += s.savings;
+      }
+    });
+    return totalSavings;
+  };
+
+  const handleApplyOptimizations = () => {
+    const nextAcc = selectedLodgingOpt || activeTrip?.accommodationPreference || accommodationPreference;
+    const nextTrans = selectedTransitOpt || activeTrip?.transportPreference || transportPreference;
+    optimizeAndRegenerateTrip(nextAcc, nextTrans);
   };
 
   const handleReplanning = async (reason: string) => {
@@ -3469,47 +3503,87 @@ export default function App() {
                               💡 Optimization Recommendations:
                             </span>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                              {getBudgetOptimizationSuggestions().map((suggestion, idx) => (
-                                <div 
-                                  key={idx} 
-                                  className="optimizer-suggestion-item" 
-                                  style={{ 
-                                    display: 'flex', 
-                                    justifyContent: 'space-between', 
-                                    alignItems: 'center', 
-                                    gap: '12px', 
-                                    padding: '8px 10px', 
-                                    background: 'rgba(255, 255, 255, 0.02)', 
-                                    border: '1px solid var(--border)', 
-                                    borderRadius: '8px',
-                                    transition: 'all 0.2s ease'
-                                  }}
-                                >
-                                  <span style={{ fontSize: '12px', color: 'var(--text-primary)', lineHeight: '1.3' }}>{suggestion.text}</span>
-                                  <button 
-                                    className="btn btn-primary btn-sm" 
+                              {getBudgetOptimizationSuggestions().map((suggestion, idx) => {
+                                const isChecked = 
+                                  (suggestion.type === 'lodging' && selectedLodgingOpt === suggestion.newAccPref) ||
+                                  (suggestion.type === 'transit' && selectedTransitOpt === suggestion.newTransPref);
+
+                                const handleToggle = () => {
+                                  if (suggestion.type === 'lodging') {
+                                    setSelectedLodgingOpt(isChecked ? null : suggestion.newAccPref);
+                                  } else {
+                                    setSelectedTransitOpt(isChecked ? null : suggestion.newTransPref);
+                                  }
+                                };
+
+                                return (
+                                  <div 
+                                    key={idx} 
+                                    className="optimizer-suggestion-item" 
+                                    onClick={handleToggle}
                                     style={{ 
-                                      padding: '4px 10px', 
-                                      fontSize: '11px', 
-                                      borderRadius: '6px', 
-                                      background: 'var(--accent)', 
-                                      border: 'none', 
-                                      color: '#fff', 
-                                      cursor: 'pointer',
-                                      flexShrink: 0,
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      gap: '4px'
+                                      display: 'flex', 
+                                      alignItems: 'center', 
+                                      gap: '12px', 
+                                      padding: '10px 12px', 
+                                      background: isChecked ? 'rgba(99, 102, 241, 0.08)' : 'rgba(255, 255, 255, 0.02)', 
+                                      border: isChecked ? '1px solid var(--accent)' : '1px solid var(--border)', 
+                                      borderRadius: '8px',
+                                      transition: 'all 0.2s ease',
+                                      cursor: 'pointer'
                                     }}
-                                    onClick={() => optimizeAndRegenerateTrip(suggestion.newAccPref, suggestion.newTransPref)}
-                                    disabled={loadingTrip}
                                   >
-                                    <Sparkles size={10} />
-                                    <span>Optimize</span>
-                                  </button>
-                                </div>
-                              ))}
+                                    <input 
+                                      type="checkbox" 
+                                      checked={isChecked}
+                                      onChange={(e) => {
+                                        e.stopPropagation();
+                                        handleToggle();
+                                      }}
+                                      style={{ 
+                                        cursor: 'pointer',
+                                        accentColor: 'var(--accent)',
+                                        width: '16px',
+                                        height: '16px',
+                                        flexShrink: 0
+                                      }} 
+                                    />
+                                    <span style={{ fontSize: '12px', color: 'var(--text-primary)', lineHeight: '1.3', flexGrow: 1 }}>
+                                      {suggestion.text}
+                                    </span>
+                                  </div>
+                                );
+                              })}
                             </div>
+
+                            {getSelectedSavings() > 0 && (
+                              <button 
+                                className="btn btn-primary budget-alert-card" 
+                                style={{ 
+                                  marginTop: '12px',
+                                  padding: '10px 16px', 
+                                  fontSize: '13px', 
+                                  borderRadius: '8px', 
+                                  background: 'var(--accent)', 
+                                  border: 'none', 
+                                  color: '#fff', 
+                                  cursor: 'pointer',
+                                  width: '100%',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  gap: '6px',
+                                  fontWeight: 600,
+                                  boxShadow: '0 4px 12px rgba(99, 102, 241, 0.2)',
+                                  transition: 'all 0.2s ease'
+                                }}
+                                onClick={handleApplyOptimizations}
+                                disabled={loadingTrip}
+                              >
+                                <Sparkles size={14} />
+                                <span>Apply Selected Optimizations (Saves ₹{getSelectedSavings().toLocaleString('en-IN')})</span>
+                              </button>
+                            )}
                           </div>
                         )}
                       </div>
