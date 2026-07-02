@@ -106,7 +106,7 @@ export default function App() {
     return localStorage.getItem('trippy_is_guest') === 'true';
   });
 
-  const [activeTab, setActiveTab] = useState<'planner' | 'safety' | 'group' | 'expenses' | 'settings' | 'offline'>('planner');
+  const [activeTab, setActiveTab] = useState<'planner' | 'group' | 'expenses' | 'settings' | 'offline'>('planner');
 
   const [settings, setSettings] = useState<AppSettings>(() => {
     const isG = localStorage.getItem('trippy_is_guest') === 'true';
@@ -2991,6 +2991,8 @@ export default function App() {
 
   return (
     <div className="dashboard-container">
+      <div className="ambient-glow-1"></div>
+      <div className="ambient-glow-2"></div>
       {/* Sidebar navigation */}
       <aside className="sidebar">
         <div 
@@ -3027,13 +3029,7 @@ export default function App() {
               <MapPin size={18} />
               <span>Trip Planner</span>
             </li>
-            <li 
-              className={`nav-item ${activeTab === 'safety' ? 'active' : ''}`}
-              onClick={() => { setActiveTab('safety'); setIsMobileMenuOpen(false); }}
-            >
-              <Shield size={18} />
-              <span>Safety Center</span>
-            </li>
+
             <li 
               className={`nav-item ${activeTab === 'group' ? 'active' : ''}`}
               onClick={() => { setActiveTab('group'); setIsMobileMenuOpen(false); }}
@@ -3214,193 +3210,303 @@ export default function App() {
               <p className="panel-subtitle">Create optimized, culture-aligned travel plans or adjust them dynamically.</p>
             </div>
 
-            <div className="grid-2col">
-              {/* Trip Config Form */}
-              <div className="glass-card">
-                <h3 style={{ marginBottom: '20px', borderBottom: '1px solid var(--border)', paddingBottom: '10px' }}>Generate Itinerary</h3>
-                <form onSubmit={handleGenerateTrip}>
-                  
-                  <div className="form-row">
-                    <div className="form-group">
-                      <label>From (Source)</label>
-                      <input 
-                        type="text" 
-                        value={source} 
-                        onChange={(e) => setSource(e.target.value)} 
-                        placeholder="Delhi, Mumbai..." 
-                        required 
-                      />
+            <div className="grid-2col planner-grid">
+              {/* Left Column wrapper */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                {/* Trip Config Form */}
+                <div className="glass-card">
+                  <h3 style={{ marginBottom: '20px', borderBottom: '1px solid var(--border)', paddingBottom: '10px' }}>Generate Itinerary</h3>
+                  <form onSubmit={handleGenerateTrip}>
+                    
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label>From (Source)</label>
+                        <input 
+                          type="text" 
+                          value={source} 
+                          onChange={(e) => setSource(e.target.value)} 
+                          placeholder="Delhi, Mumbai..." 
+                          required 
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label>To (Destination)</label>
+                        <input 
+                          type="text" 
+                          value={destination} 
+                          onChange={(e) => setDestination(e.target.value)} 
+                          placeholder="Goa, Jaipur, Manali..." 
+                          required 
+                        />
+                      </div>
                     </div>
-                    <div className="form-group">
-                      <label>To (Destination)</label>
-                      <input 
-                        type="text" 
-                        value={destination} 
-                        onChange={(e) => setDestination(e.target.value)} 
-                        placeholder="Goa, Jaipur, Manali..." 
-                        required 
-                      />
-                    </div>
-                  </div>
 
-                  <div className="form-row">
-                    <div className="form-group">
-                      <label>Start Date</label>
-                      <input 
-                        type="date" 
-                        value={startDate} 
-                        onChange={(e) => setStartDate(e.target.value)} 
-                        required 
-                      />
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label>Start Date</label>
+                        <input 
+                          type="date" 
+                          value={startDate} 
+                          onChange={(e) => setStartDate(e.target.value)} 
+                          required 
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label>End Date</label>
+                        <input 
+                          type="date" 
+                          value={endDate} 
+                          onChange={(e) => setEndDate(e.target.value)} 
+                          required 
+                        />
+                      </div>
                     </div>
-                    <div className="form-group">
-                      <label>End Date</label>
-                      <input 
-                        type="date" 
-                        value={endDate} 
-                        onChange={(e) => setEndDate(e.target.value)} 
-                        required 
-                      />
-                    </div>
-                  </div>
 
-                  <div className="form-row">
-                    <div className="form-group">
-                      <label>Travelers count</label>
-                      <input 
-                        type="number" 
-                        min="1" 
-                        value={travelers} 
-                        onChange={(e) => setTravelers(e.target.value === '' ? '' : parseInt(e.target.value) || '')} 
-                        placeholder="e.g. 2"
-                        required 
-                      />
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label>Travelers count</label>
+                        <input 
+                          type="number" 
+                          min="1" 
+                          value={travelers} 
+                          onChange={(e) => setTravelers(e.target.value === '' ? '' : parseInt(e.target.value) || '')} 
+                          placeholder="e.g. 2"
+                          required 
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label>Total Budget Limit (INR)</label>
+                        <input 
+                          type="number" 
+                          min="1000" 
+                          step="500" 
+                          value={budgetLimit} 
+                          onChange={(e) => setBudgetLimit(e.target.value === '' ? '' : parseInt(e.target.value) || '')} 
+                          placeholder="e.g. 30000"
+                          required 
+                        />
+                      </div>
                     </div>
-                    <div className="form-group">
-                      <label>Total Budget Limit (INR)</label>
-                      <input 
-                        type="number" 
-                        min="1000" 
-                        step="500" 
-                        value={budgetLimit} 
-                        onChange={(e) => setBudgetLimit(e.target.value === '' ? '' : parseInt(e.target.value) || '')} 
-                        placeholder="e.g. 30000"
-                        required 
-                      />
-                    </div>
-                  </div>
 
-                  <div className="form-group">
-                    <label>Trip Theme</label>
-                    <select value={tripType} onChange={(e) => setTripType(e.target.value)}>
-                      <option value="Leisure">Leisure / Relaxation 🌴</option>
-                      <option value="Adventure">Adventure / Trekking 🧗</option>
-                      <option value="Heritage">Heritage / History 🏛️</option>
-                      <option value="Backpacking">Budget Backpacking 🎒</option>
-                      <option value="Business">Business Trip 💼</option>
-                    </select>
-                  </div>
-
-                  <div className="form-row">
                     <div className="form-group">
-                      <label>Accommodation</label>
-                      <select value={accommodationPreference} onChange={(e) => setAccommodationPreference(e.target.value)}>
-                        <option value="Luxury">Luxury Resort</option>
-                        <option value="Standard">Standard Hotel</option>
-                        <option value="Budget">Hostel / HomeStay</option>
+                      <label>Trip Theme</label>
+                      <select value={tripType} onChange={(e) => setTripType(e.target.value)}>
+                        <option value="Leisure">Leisure / Relaxation 🌴</option>
+                        <option value="Adventure">Adventure / Trekking 🧗</option>
+                        <option value="Heritage">Heritage / History 🏛️</option>
+                        <option value="Backpacking">Budget Backpacking 🎒</option>
+                        <option value="Business">Business Trip 💼</option>
                       </select>
                     </div>
-                    <div className="form-group">
-                      <label>Transport Preference</label>
-                      <select value={transportPreference} onChange={(e) => setTransportPreference(e.target.value)}>
-                        <option value="flight">Flight ✈️</option>
-                        <option value="train">Train 🚂</option>
-                        <option value="cab">Rental Cab / Bus 🚗</option>
-                      </select>
-                    </div>
-                  </div>
 
-                  <div className="form-group">
-                    <label>Areas of Interest</label>
-                    <div className="interests-grid">
-                      {INTERESTS_LIST.map(item => (
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label>Accommodation</label>
+                        <select value={accommodationPreference} onChange={(e) => setAccommodationPreference(e.target.value)}>
+                          <option value="Luxury">Luxury Resort</option>
+                          <option value="Standard">Standard Hotel</option>
+                          <option value="Budget">Hostel / HomeStay</option>
+                        </select>
+                      </div>
+                      <div className="form-group">
+                        <label>Transport Preference</label>
+                        <select value={transportPreference} onChange={(e) => setTransportPreference(e.target.value)}>
+                          <option value="flight">Flight ✈️</option>
+                          <option value="train">Train 🚂</option>
+                          <option value="cab">Rental Cab / Bus 🚗</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="form-group">
+                      <label>Areas of Interest</label>
+                      <div className="interests-grid">
+                        {INTERESTS_LIST.map(item => (
+                          <div 
+                            key={item.id} 
+                            className={`interest-chip ${selectedInterests.includes(item.id) ? 'selected' : ''}`}
+                            onClick={() => toggleInterest(item.id)}
+                          >
+                            {item.label}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <button 
+                      type="submit" 
+                      className="btn btn-primary" 
+                      style={{ width: '100%', marginTop: '12px' }}
+                      disabled={loadingTrip}
+                    >
+                      {loadingTrip ? (
+                        <>
+                          <RefreshCw className="animate-spin" size={16} />
+                          <span>Crafting AI Itinerary...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles size={16} />
+                          <span>Generate Itinerary</span>
+                        </>
+                      )}
+                    </button>
+                  </form>
+                </div>
+
+                {/* Saved Trips List */}
+                {savedTrips.length > 0 && (
+                  <div className="glass-card">
+                    <h3 style={{ marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span>💾 Saved Itineraries</span>
+                      <span className="badge" style={{ background: 'var(--primary-light)', color: 'var(--primary-hover)', fontSize: '11px' }}>
+                        {savedTrips.length}
+                      </span>
+                    </h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '250px', overflowY: 'auto' }}>
+                      {savedTrips.map(trip => (
                         <div 
-                          key={item.id} 
-                          className={`interest-chip ${selectedInterests.includes(item.id) ? 'selected' : ''}`}
-                          onClick={() => toggleInterest(item.id)}
+                          key={trip.id} 
+                          className="saved-trip-item"
+                          onClick={() => handleLoadSavedTrip(trip)}
+                          style={{ 
+                            padding: '12px', 
+                            background: activeTrip?.id === trip.id ? 'rgba(99, 102, 241, 0.1)' : 'rgba(255, 255, 255, 0.01)', 
+                            border: activeTrip?.id === trip.id ? '1px solid var(--primary-hover)' : '1px solid var(--border)', 
+                            borderRadius: '10px', 
+                            cursor: 'pointer',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            transition: 'all 0.2s ease'
+                          }}
                         >
-                          {item.label}
+                          <div style={{ flexGrow: 1 }}>
+                            <strong style={{ fontSize: '13px', display: 'block', color: 'var(--text-primary)' }}>{trip.destination}</strong>
+                            <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                              {new Date(trip.startDate).toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })} - {new Date(trip.endDate).toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })} • {trip.travelers} Pax
+                            </span>
+                          </div>
+                          <button 
+                            className="btn btn-secondary btn-sm" 
+                            style={{ padding: '4px', minWidth: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--danger)', background: 'transparent', border: 'none' }}
+                            onClick={(e) => handleDeleteSavedTrip(trip.id, e)}
+                          >
+                            <Trash2 size={12} />
+                          </button>
                         </div>
                       ))}
                     </div>
                   </div>
+                )}
 
-                  <button 
-                    type="submit" 
-                    className="btn btn-primary" 
-                    style={{ width: '100%', marginTop: '12px' }}
-                    disabled={loadingTrip}
-                  >
-                    {loadingTrip ? (
-                      <>
-                        <RefreshCw className="animate-spin" size={16} />
-                        <span>Crafting AI Itinerary...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles size={16} />
-                        <span>Generate Itinerary</span>
-                      </>
-                    )}
-                  </button>
-                </form>
-              </div>
+                {/* Safety Advisor Panel */}
+                {(loadingSafety || safetyReport) && (
+                  <div className="glass-card no-print">
+                    <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+                      <Shield size={18} style={{ color: 'var(--primary-hover)' }} />
+                      <span>🛡️ Safety Advisor: {activeTrip?.destination || destination}</span>
+                    </h3>
 
-              {/* Saved Trips List */}
-              {savedTrips.length > 0 && (
-                <div className="glass-card" style={{ marginTop: '24px' }}>
-                  <h3 style={{ marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span>💾 Saved Itineraries</span>
-                    <span className="badge" style={{ background: 'var(--primary-light)', color: 'var(--primary-hover)', fontSize: '11px' }}>
-                      {savedTrips.length}
-                    </span>
-                  </h3>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '250px', overflowY: 'auto' }}>
-                    {savedTrips.map(trip => (
-                      <div 
-                        key={trip.id} 
-                        className="saved-trip-item"
-                        onClick={() => handleLoadSavedTrip(trip)}
-                        style={{ 
-                          padding: '12px', 
-                          background: activeTrip?.id === trip.id ? 'rgba(99, 102, 241, 0.1)' : 'rgba(255, 255, 255, 0.01)', 
-                          border: activeTrip?.id === trip.id ? '1px solid var(--primary-hover)' : '1px solid var(--border)', 
-                          borderRadius: '10px', 
-                          cursor: 'pointer',
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          transition: 'all 0.2s ease'
-                        }}
-                      >
-                        <div style={{ flexGrow: 1 }}>
-                          <strong style={{ fontSize: '13px', display: 'block', color: 'var(--text-primary)' }}>{trip.destination}</strong>
-                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                            {new Date(trip.startDate).toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })} - {new Date(trip.endDate).toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })} • {trip.travelers} Pax
-                          </span>
-                        </div>
-                        <button 
-                          className="btn btn-secondary btn-sm" 
-                          style={{ padding: '4px', minWidth: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--danger)', background: 'transparent', border: 'none' }}
-                          onClick={(e) => handleDeleteSavedTrip(trip.id, e)}
-                        >
-                          <Trash2 size={12} />
-                        </button>
+                    {loadingSafety ? (
+                      <div style={{ textAlign: 'center', padding: '32px' }}>
+                        <RefreshCw className="animate-spin" size={24} style={{ marginInline: 'auto', marginBottom: '12px', color: 'var(--primary-hover)' }} />
+                        <h4 style={{ margin: 0, fontSize: '13px' }}>Analyzing local safety data...</h4>
                       </div>
-                    ))}
+                    ) : safetyReport ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                        {/* Meter Gauge rating */}
+                        <div className="safety-meter" style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border)', padding: '16px', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '16px' }}>
+                          <div className="safety-score-circle" style={{ width: '60px', height: '60px', fontSize: '20px', flexShrink: 0, borderColor: safetyReport.rating > 80 ? 'var(--accent)' : safetyReport.rating > 60 ? 'var(--warning)' : 'var(--danger)' }}>
+                            {safetyReport.rating}
+                          </div>
+                          <div className="safety-description">
+                            <span className="safety-label" style={{ fontSize: '11px' }}>Destination safety rating</span>
+                            <h4 className="safety-status" style={{ margin: '4px 0 0', fontSize: '14.5px', fontWeight: 600 }}>
+                              {safetyReport.rating > 80 ? 'Generally Safe & Welcoming 🟢' : safetyReport.rating > 60 ? 'Moderate Pacing Required 🟡' : 'Exercise High Caution 🔴'}
+                            </h4>
+                          </div>
+                        </div>
+
+                        {/* Common Scams */}
+                        <div style={{ borderLeft: '3px solid rgba(239, 68, 68, 0.4)', paddingLeft: '12px' }}>
+                          <h4 style={{ color: '#f87171', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13.5px', margin: '0 0 8px 0', fontWeight: 600 }}>
+                            <AlertTriangle size={14} />
+                            <span>Common Tourist Scams</span>
+                          </h4>
+                          <ul className="safety-bullet-list" style={{ gap: '6px' }}>
+                            {safetyReport.commonScams.map((scam, i) => (
+                              <li key={i} className="safety-bullet-item" style={{ fontSize: '12.5px' }}>
+                                <span style={{ color: 'var(--danger)' }} className="safety-bullet-icon">🚨</span>
+                                <span>{scam}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+
+                        {/* Neighborhood Guides */}
+                        <div style={{ borderLeft: '3px solid var(--primary-hover)', paddingLeft: '12px' }}>
+                          <h4 style={{ color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13.5px', margin: '0 0 8px 0', fontWeight: 600 }}>
+                            <MapPin size={14} style={{ color: 'var(--primary-hover)' }} />
+                            <span>Neighborhood Guidance</span>
+                          </h4>
+                          
+                          <div style={{ marginBottom: '8px' }}>
+                            <strong style={{ color: 'var(--accent)', fontSize: '12px', display: 'block', marginBottom: '4px' }}>🟢 Recommended Safe Hubs:</strong>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                              {safetyReport.safeNeighborhoods.map((n, i) => (
+                                <span key={i} className="badge" style={{ fontSize: '10px', padding: '2px 6px', background: 'var(--accent-light)', color: '#34d399', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
+                                  {n}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div>
+                            <strong style={{ color: 'var(--warning)', fontSize: '12px', display: 'block', marginBottom: '4px' }}>🟡 Exercise Caution / Avoid Late-Night:</strong>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                              {safetyReport.unsafeNeighborhoods.map((n, i) => (
+                                <span key={i} className="badge" style={{ fontSize: '10px', padding: '2px 6px', background: 'var(--warning-light)', color: '#fbbf24', border: '1px solid rgba(245, 158, 11, 0.2)' }}>
+                                  {n}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Solo Traveler Safety Tips */}
+                        <div style={{ borderLeft: '3px solid var(--accent)', paddingLeft: '12px' }}>
+                          <h4 style={{ color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13.5px', margin: '0 0 8px 0', fontWeight: 600 }}>
+                            <CheckCircle size={14} style={{ color: 'var(--accent)' }} />
+                            <span>Solo Traveler Tips</span>
+                          </h4>
+                          <ul className="safety-bullet-list" style={{ gap: '6px' }}>
+                            {safetyReport.soloTravelerTips.map((tip, i) => (
+                              <li key={i} className="safety-bullet-item" style={{ fontSize: '12.5px' }}>
+                                <span style={{ color: 'var(--primary-hover)' }} className="safety-bullet-icon">✦</span>
+                                <span>{tip}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+
+                        {/* Safety Q&A Accordion */}
+                        <div style={{ borderLeft: '3px solid var(--border-hover)', paddingLeft: '12px' }}>
+                          <h4 style={{ color: 'var(--text-primary)', fontSize: '13.5px', margin: '0 0 8px 0', fontWeight: 600 }}>Local Security Q&A</h4>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                            {safetyReport.qa.map((item, i) => (
+                              <div key={i} style={{ padding: '8px 10px', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border)', borderRadius: '8px' }}>
+                                <strong style={{ fontSize: '12px', color: 'var(--text-primary)', display: 'block' }}>Q: {item.question}</strong>
+                                <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px', margin: 0, lineHeight: 1.4 }}>{item.answer}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
-                </div>
-              )}
+                )}
+              </div>
 
               {/* Itinerary Display Column */}
               <div className="glass-card" style={{ display: 'flex', flexDirection: 'column' }}>
@@ -3753,129 +3859,7 @@ export default function App() {
           </div>
         )}
 
-        {/* Tab 2: SAFETY CENTER */}
-        {activeTab === 'safety' && (
-          <div>
-            <div className="panel-header">
-              <h1 className="panel-title">🛡️ Safety Center</h1>
-              <p className="panel-subtitle">Get tourist-scam warnings, safety neighborhood ratings, and emergency guides.</p>
-            </div>
 
-            {loadingSafety ? (
-              <div style={{ textAlign: 'center', padding: '64px' }}>
-                <RefreshCw className="animate-spin" size={32} style={{ marginInline: 'auto', marginBottom: '16px', color: 'var(--primary-hover)' }} />
-                <h3>Analyzing local safety data...</h3>
-              </div>
-            ) : safetyReport ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                
-                {/* Meter Gauge rating */}
-                <div className="glass-card safety-meter">
-                  <div className="safety-score-circle" style={{ borderColor: safetyReport.rating > 80 ? 'var(--accent)' : safetyReport.rating > 60 ? 'var(--warning)' : 'var(--danger)' }}>
-                    {safetyReport.rating}
-                  </div>
-                  <div className="safety-description">
-                    <span className="safety-label">Destination safety rating</span>
-                    <h3 className="safety-status">
-                      {safetyReport.rating > 80 ? 'Generally Safe & Welcoming 🟢' : safetyReport.rating > 60 ? 'Moderate Pacing Required 🟡' : 'Exercise High Caution 🔴'}
-                    </h3>
-                    <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                      This score is aggregated based on tourist reports, crime registries, scam volume, and female solo travel statistics.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="grid-2col">
-                  {/* Common Scams */}
-                  <div className="glass-card" style={{ borderColor: 'rgba(239, 68, 68, 0.2)' }}>
-                    <h3 style={{ color: '#f87171', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <AlertTriangle size={18} />
-                      <span>Common Tourist Scams</span>
-                    </h3>
-                    <ul className="safety-bullet-list">
-                      {safetyReport.commonScams.map((scam, i) => (
-                        <li key={i} className="safety-bullet-item">
-                          <span style={{ color: 'var(--danger)' }} className="safety-bullet-icon">🚨</span>
-                          <span>{scam}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-
-                  {/* Neighborhood Guides */}
-                  <div className="glass-card">
-                    <h3 style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <MapPin size={18} style={{ color: 'var(--primary-hover)' }} />
-                      <span>Neighborhood Guidance</span>
-                    </h3>
-                    
-                    <div style={{ marginBottom: '16px' }}>
-                      <strong style={{ color: 'var(--accent)', fontSize: '13px', display: 'block', marginBottom: '8px' }}>🟢 Highly Recommended Safe Hubs:</strong>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                        {safetyReport.safeNeighborhoods.map((n, i) => (
-                          <span key={i} className="badge" style={{ background: 'var(--accent-light)', color: '#34d399', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
-                            {n}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div>
-                      <strong style={{ color: 'var(--warning)', fontSize: '13px', display: 'block', marginBottom: '8px' }}>🟡 Exercise Caution / Avoid Late-Night:</strong>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                        {safetyReport.unsafeNeighborhoods.map((n, i) => (
-                          <span key={i} className="badge" style={{ background: 'var(--warning-light)', color: '#fbbf24', border: '1px solid rgba(245, 158, 11, 0.2)' }}>
-                            {n}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid-2col">
-                  {/* Solo Traveler Safety Tips */}
-                  <div className="glass-card">
-                    <h3 style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <CheckCircle size={18} style={{ color: 'var(--primary-hover)' }} />
-                      <span>Solo Traveler Tips</span>
-                    </h3>
-                    <ul className="safety-bullet-list">
-                      {safetyReport.soloTravelerTips.map((tip, i) => (
-                        <li key={i} className="safety-bullet-item">
-                          <span style={{ color: 'var(--primary-hover)' }} className="safety-bullet-icon">✦</span>
-                          <span>{tip}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-
-                  {/* Safety Q&A Accordion */}
-                  <div className="glass-card">
-                    <h3 style={{ marginBottom: '16px' }}>Local Security Q&A</h3>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                      {safetyReport.qa.map((item, i) => (
-                        <div key={i} style={{ padding: '12px', background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border)', borderRadius: '10px' }}>
-                          <strong style={{ fontSize: '13px', color: 'var(--text-primary)', display: 'block' }}>Q: {item.question}</strong>
-                          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '6px', lineHeight: 1.5 }}>{item.answer}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-              </div>
-            ) : (
-              <div className="glass-card" style={{ textAlign: 'center', padding: '40px' }}>
-                <AlertTriangle size={24} style={{ color: 'var(--warning)', marginBottom: '12px' }} />
-                <h3>No Safety Data</h3>
-                <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginTop: '8px' }}>
-                  Please go to **Trip Planner** and generate a trip first to load specific location safety reviews.
-                </p>
-              </div>
-            )}
-          </div>
-        )}
 
         {/* Tab 3: GROUP HUB */}
         {activeTab === 'group' && (
@@ -3938,7 +3922,7 @@ export default function App() {
                         style={{ 
                           flex: 1, 
                           padding: '8px 12px', 
-                          background: 'rgba(8, 9, 12, 0.6)', 
+                          background: 'var(--bg-surface)', 
                           border: '1px solid var(--border)', 
                           borderRadius: '8px', 
                           color: 'var(--text-primary)', 
@@ -5190,7 +5174,6 @@ export default function App() {
               <a 
                 href={`upi://pay?pa=${group.members.find(m => m.name === settlementModal.to)?.upi}&pn=${encodeURIComponent(settlementModal.to)}&am=${settlementModal.amount}&tn=Trippy%20Settlement&cu=INR`}
                 className="btn btn-primary"
-                style={{ textAlign: 'center' }}
                 onClick={() => {
                   handleSettleUp(settlementModal.from, settlementModal.to, settlementModal.amount);
                 }}
@@ -5216,35 +5199,17 @@ export default function App() {
             className={`floating-chatbot-btn ${isChatOpen ? 'active' : ''}`}
             onClick={() => setIsChatOpen(!isChatOpen)}
             title="Chat with TripPilot AI"
-            style={{
-              position: 'fixed',
-              bottom: '24px',
-              right: '24px',
-              width: '56px',
-              height: '56px',
-              borderRadius: '50%',
-              background: 'linear-gradient(135deg, #a78bfa 0%, #6366f1 100%)',
-              color: 'white',
-              border: '1px solid rgba(255, 255, 255, 0.25)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer',
-              zIndex: 999,
-              boxShadow: '0 8px 32px rgba(139, 92, 246, 0.4), inset 0 1px 0 rgba(255,255,255,0.35)',
-              transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
-            }}
           >
             {isChatOpen ? (
               <X size={22} />
             ) : (
-              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ filter: 'drop-shadow(0 2px 6px rgba(139, 92, 246, 0.3))' }}>
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ filter: 'drop-shadow(0 2px 6px rgba(28, 57, 187, 0.3))' }}>
                 <path d="M12 3C12 7.97 7.97 12 3 12C7.97 12 12 16.03 12 21C12 16.03 16.03 12 21 12C16.03 12 12 7.97 12 3Z" fill="url(#ai-grad)" />
                 <path d="M19 3C19 4.66 17.66 6 16 6C17.66 6 19 7.34 19 9C19 7.34 20.34 6 22 6C20.34 6 19 4.66 19 3Z" fill="url(#ai-grad-small)" />
                 <defs>
                   <linearGradient id="ai-grad" x1="3" y1="3" x2="21" y2="21" gradientUnits="userSpaceOnUse">
                     <stop offset="0%" stopColor="#ffffff" />
-                    <stop offset="100%" stopColor="#d8b4fe" />
+                    <stop offset="100%" stopColor="#b37d14" />
                   </linearGradient>
                   <linearGradient id="ai-grad-small" x1="16" y1="3" x2="22" y2="9" gradientUnits="userSpaceOnUse">
                     <stop offset="0%" stopColor="#fef08a" />
@@ -5254,55 +5219,18 @@ export default function App() {
               </svg>
             )}
             {!isChatOpen && (
-              <span className="notification-glow" style={{
-                position: 'absolute',
-                top: '-2px',
-                right: '-2px',
-                width: '12px',
-                height: '12px',
-                borderRadius: '50%',
-                background: '#fbbf24',
-                boxShadow: '0 0 8px #fbbf24',
-              }} />
+              <span className="notification-glow" />
             )}
           </button>
 
           {/* Chatbot Popover Panel */}
           {isChatOpen && (
-            <div 
-              className="floating-chatbot-panel glass-panel"
-              style={{
-                position: 'fixed',
-                bottom: '96px',
-                right: '24px',
-                width: '380px',
-                height: '520px',
-                borderRadius: '20px',
-                zIndex: 998,
-                display: 'flex',
-                flexDirection: 'column',
-                boxShadow: '0 20px 40px rgba(0, 0, 0, 0.5), inset 0 0 20px rgba(255, 255, 255, 0.02)',
-                border: '1px solid var(--border)',
-                overflow: 'hidden',
-                background: 'var(--bg-surface-glass)',
-                backdropFilter: 'blur(20px)',
-                WebkitBackdropFilter: 'blur(20px)',
-              }}
-            >
+            <div className="floating-chatbot-panel glass-panel">
               {/* Header */}
-              <div 
-                style={{ 
-                  padding: '16px 20px', 
-                  borderBottom: '1px solid var(--border)', 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  justifyContent: 'space-between',
-                  background: 'rgba(139, 92, 246, 0.05)',
-                }}
-              >
+              <div className="chat-header">
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                   <div style={{ position: 'relative', display: 'flex' }}>
-                    <MessageSquare size={18} style={{ color: 'var(--primary-hover)' }} />
+                    <MessageSquare size={18} style={{ color: 'var(--accent)' }} />
                     <span style={{
                       position: 'absolute',
                       bottom: '-2px',
@@ -5315,39 +5243,28 @@ export default function App() {
                     }} />
                   </div>
                   <div>
-                    <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>TripPilot AI</h3>
-                    <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>Travel Assistant</span>
+                    <h3>TripPilot AI</h3>
+                    <span style={{ fontSize: '10px', color: 'rgba(255, 255, 255, 0.55)' }}>Travel Assistant</span>
                   </div>
                 </div>
                 <button 
                   onClick={() => setIsChatOpen(false)}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: 'var(--text-secondary)',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    padding: '4px',
-                    borderRadius: '50%',
-                    transition: 'background 0.2s',
-                  }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)'}
-                  onMouseLeave={(e) => e.currentTarget.style.background = 'none'}
+                  className="chat-header-close"
                 >
                   <X size={16} />
                 </button>
               </div>
 
               {/* Chat Container */}
-              <div className="chat-container" style={{ flex: 1, display: 'flex', flexDirection: 'column', height: 'calc(100% - 60px)', overflow: 'hidden' }}>
+              <div className="chat-container">
                 {/* Chat Message Box */}
-                <div className="chat-history" style={{ flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div className="chat-history">
                   {chatbotMessages.map(msg => (
                     <div 
                       key={msg.id} 
                       className={`chat-msg ${msg.isAI ? 'chat-msg-ai' : 'chat-msg-user'}`}
                     >
-                      <strong style={{ fontSize: '11px', display: 'block', marginBottom: '4px', color: msg.isAI ? 'var(--primary-hover)' : 'rgba(255, 255, 255, 0.8)' }}>
+                      <strong style={{ fontSize: '11px', display: 'block', marginBottom: '4px', color: msg.isAI ? 'var(--accent)' : 'rgba(255, 255, 255, 0.8)' }}>
                         {msg.sender}
                       </strong>
                       <div style={{ whiteSpace: 'pre-wrap', fontSize: '12.5px', lineHeight: 1.4 }}>
@@ -5359,7 +5276,7 @@ export default function App() {
                   
                   {botLoading && (
                     <div className="chat-msg chat-msg-ai">
-                      <strong style={{ fontSize: '11px', display: 'block', color: 'var(--primary-hover)' }}>TripPilot</strong>
+                      <strong style={{ fontSize: '11px', display: 'block', color: 'var(--accent)' }}>TripPilot</strong>
                       <div style={{ display: 'flex', gap: '4px', alignItems: 'center', height: '20px' }}>
                         <span className="dot animate-pulse">●</span>
                         <span className="dot animate-pulse" style={{ animationDelay: '0.2s' }}>●</span>
@@ -5371,37 +5288,35 @@ export default function App() {
                 </div>
 
                 {/* Quick Chips suggestions */}
-                <div className="chat-chips" style={{ padding: '8px 16px', display: 'flex', gap: '6px', overflowX: 'auto', flexShrink: 0, whiteSpace: 'nowrap', borderTop: '1px solid var(--border)', background: 'rgba(0,0,0,0.1)' }}>
-                  <div className="chat-chip" style={{ fontSize: '11px', padding: '4px 10px' }} onClick={() => handleSendChatbot(undefined, "Is UPI accepted widely here?")}>
+                <div className="chat-chips">
+                  <div className="chat-chip" onClick={() => handleSendChatbot(undefined, "Is UPI accepted widely here?")}>
                     💳 UPI?
                   </div>
-                  <div className="chat-chip" style={{ fontSize: '11px', padding: '4px 10px' }} onClick={() => handleSendChatbot(undefined, "What is the temple dress code?")}>
+                  <div className="chat-chip" onClick={() => handleSendChatbot(undefined, "What is the temple dress code?")}>
                     🛕 Dress code?
                   </div>
-                  <div className="chat-chip" style={{ fontSize: '11px', padding: '4px 10px' }} onClick={() => handleSendChatbot(undefined, "What are tipping standards?")}>
+                  <div className="chat-chip" onClick={() => handleSendChatbot(undefined, "What are tipping standards?")}>
                     🪙 Tipping?
                   </div>
                   {activeTrip && (
-                    <div className="chat-chip" style={{ fontSize: '11px', padding: '4px 10px' }} onClick={() => handleSendChatbot(undefined, `How can I save costs on my ₹${activeTrip.budgetLimit} budget?`)}>
+                    <div className="chat-chip" onClick={() => handleSendChatbot(undefined, `How can I save costs on my ₹${activeTrip.budgetLimit} budget?`)}>
                       💸 Budget tips
                     </div>
                   )}
                 </div>
 
                 {/* Input form */}
-                <form onSubmit={(e) => handleSendChatbot(e)} className="chat-input-area" style={{ padding: '12px 16px', borderTop: '1px solid var(--border)' }}>
+                <form onSubmit={(e) => handleSendChatbot(e)} className="chat-input-area">
                   <input 
                     type="text" 
                     placeholder="Ask TripPilot travel questions..." 
                     value={botQuery}
                     onChange={(e) => setBotQuery(e.target.value)}
                     disabled={botLoading}
-                    style={{ padding: '10px 14px', fontSize: '12.5px' }}
                   />
                   <button 
                     type="submit" 
-                    className="btn btn-primary" 
-                    style={{ padding: '10px' }}
+                    className="btn btn-primary btn-sm" 
                     disabled={botLoading}
                   >
                     <Send size={14} />
