@@ -23,6 +23,7 @@ import {
   FileText,
   Download,
   Sun,
+  Moon,
   Cloud,
   CloudRain,
   CloudLightning,
@@ -121,6 +122,21 @@ const getWeatherIcon = (condition: string, size = 24) => {
 };
 
 export default function App() {
+
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
+    return localStorage.getItem('trippy_theme') === 'dark';
+  });
+
+  useEffect(() => {
+    if (isDarkMode) {
+      document.documentElement.setAttribute('data-theme', 'dark');
+      localStorage.setItem('trippy_theme', 'dark');
+    } else {
+      document.documentElement.setAttribute('data-theme', 'light');
+      localStorage.setItem('trippy_theme', 'light');
+    }
+  }, [isDarkMode]);
+
   // --- Persistent States ---
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
     const saved = localStorage.getItem('trippy_user');
@@ -3116,6 +3132,14 @@ export default function App() {
               <SettingsIcon size={18} />
               <span>Settings</span>
             </li>
+            <li 
+              className="nav-item"
+              onClick={() => { setIsDarkMode(!isDarkMode); setIsMobileMenuOpen(false); }}
+              style={{ padding: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifySelf: 'flex-end', marginLeft: 'auto' }}
+              title="Toggle Theme"
+            >
+              {isDarkMode ? <Sun size={18} /> : <Moon size={18} />}
+            </li>
           </ul>
 
           {/* Mobile Profile Preview Inside Menu Drawer */}
@@ -3854,7 +3878,7 @@ export default function App() {
                       return (
                         <div 
                           key={day.dayNumber} 
-                          className={`itinerary-day-section ${isActive ? 'active' : ''}`}
+                          className={`itinerary-day-section ${isActive ? 'active' : ''} fade-in-up stagger-1`}
                           style={{ flexGrow: 1, flexDirection: 'column' }}
                         >
                           
@@ -3909,7 +3933,7 @@ export default function App() {
                           {/* Timeline of activities */}
                           <div className="timeline">
                             {day.activities.map((act, idx) => (
-                              <div key={idx} className="timeline-item" style={{ borderColor: act.isSafetyWarning ? 'rgba(239, 68, 68, 0.3)' : 'var(--border)' }}>
+                              <div key={idx} className={`timeline-item fade-in-up stagger-${(idx % 7) + 1}`} style={{ borderColor: act.isSafetyWarning ? 'rgba(239, 68, 68, 0.3)' : 'var(--border)' }}>
                                 <div className="timeline-dot" style={{ backgroundColor: act.isSafetyWarning ? 'var(--danger)' : 'var(--primary)' }} />
                                 <div className="timeline-time">{act.time}</div>
                                 <div className="timeline-header">
