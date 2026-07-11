@@ -1,4 +1,4 @@
-import type { Trip, ItineraryDay, Activity, CostBreakdown, SafetyReport } from '../types';
+import type { Trip, ItineraryDay, SafetyReport } from '../types';
 
 export const AIService = {
   /**
@@ -159,7 +159,7 @@ Calculate and output all costs exactly for ${params.travelers} travelers and ${d
         return this.alignAndValidateTripCosts(trip);
       } catch (error) {
         console.error('Failed to generate itinerary with OpenAI:', error);
-        throw new Error('Failed to generate itinerary. Please ensure your OpenAI API key is valid.');
+        throw new Error('Failed to generate itinerary. Please ensure your OpenAI API key is valid.', { cause: error });
       }
     }
     throw new Error('OpenAI API key is missing. The offline mock data fallback has been removed.');
@@ -168,7 +168,7 @@ Calculate and output all costs exactly for ${params.travelers} travelers and ${d
   /**
    * Generates a high-quality mock trip itinerary when offline or no API key is specified
    */
-  generateMockTrip(): any {
+  generateMockTrip(): never {
     throw new Error('Mock data has been removed. Please use OpenAI.');
   },
 
@@ -210,7 +210,8 @@ Return ONLY a JSON object matching this schema:
   /**
    * Mock safety report fallback
    */
-  getMockSafetyReport(destination: string): SafetyReport {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  getMockSafetyReport(_destination: string): SafetyReport {
     throw new Error('Mock data disabled. Please use OpenAI.');
   },
 
@@ -267,7 +268,8 @@ Replanning parameters: Adjust the remaining hours of this day itinerary to be sa
   /**
    * Mock replanner logic
    */
-  getMockReplannedDay(day: ItineraryDay, reason: string): ItineraryDay {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  getMockReplannedDay(_day: ItineraryDay, _reason: string): ItineraryDay {
     throw new Error('Mock data disabled. Please use OpenAI.');
   },
 
@@ -344,7 +346,8 @@ Be concise, structural, and write in markdown format.`;
   /**
    * Mock chatbot responses
    */
-  getMockChatbotReply(query: string, trip: Trip | null): string {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  getMockChatbotReply(_query: string, _trip: Trip | null): string {
     throw new Error('Mock data disabled. Please use OpenAI.');
   },
 
@@ -452,16 +455,12 @@ Be concise, structural, and write in markdown format.`;
     if (total > trip.budgetLimit) {
       let fixedCosts = 0;
       let flexibleCosts = 0;
-      let currentEmergency = 0;
-
       trip.itinerary.forEach(day => {
         day.activities.forEach(act => {
           const cost = Number(act.cost) || 0;
           if (act.type === 'accommodation' || act.title.includes('Travel:')) {
             fixedCosts += cost;
-          } else if (act.type === 'emergency') {
-            currentEmergency += cost;
-          } else {
+          } else if (act.type !== 'emergency') {
             flexibleCosts += cost;
           }
         });
