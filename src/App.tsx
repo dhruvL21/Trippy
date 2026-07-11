@@ -21,9 +21,18 @@ import {
   X,
   WifiOff,
   FileText,
-  Download
+  Download,
+  Sun,
+  Cloud,
+  CloudRain,
+  CloudLightning,
+  Snowflake,
+  Wind,
+  Droplets
 } from 'lucide-react';
 import { AIService } from './services/ai';
+import { WeatherService } from './services/weather';
+import type { WeatherData } from './services/weather';
 import Auth from './components/Auth';
 import LandingPage from './components/LandingPage';
 import { checkCognitoSession, logoutCognito } from './services/cognito';
@@ -94,6 +103,22 @@ const INTERESTS_LIST = [
 ];
 
 const CLIENT_ID = 'client-' + Math.random().toString(36).substring(2, 15) + '-' + Date.now();
+
+const getWeatherIcon = (condition: string, size = 24) => {
+  const cond = condition.toLowerCase();
+  if (cond.includes('clear')) {
+    return <Sun size={size} style={{ color: '#fbbf24' }} />;
+  } else if (cond.includes('cloud')) {
+    return <Cloud size={size} style={{ color: '#cbd5e1' }} />;
+  } else if (cond.includes('rain') || cond.includes('drizzle')) {
+    return <CloudRain size={size} style={{ color: '#60a5fa' }} />;
+  } else if (cond.includes('thunder') || cond.includes('storm')) {
+    return <CloudLightning size={size} style={{ color: '#fbbf24' }} />;
+  } else if (cond.includes('snow') || cond.includes('ice') || cond.includes('freeze')) {
+    return <Snowflake size={size} style={{ color: '#93c5fd' }} />;
+  }
+  return <Cloud size={size} style={{ color: '#cbd5e1' }} />;
+};
 
 export default function App() {
   // --- Persistent States ---
@@ -270,6 +295,8 @@ export default function App() {
   // --- UI Control States ---
   const [loadingTrip, setLoadingTrip] = useState(false);
   const [loadingSafety, setLoadingSafety] = useState(false);
+  const [weatherForecast, setWeatherForecast] = useState<WeatherData | null>(null);
+  const [loadingWeather, setLoadingWeather] = useState(false);
   const [activeItineraryDay, setActiveItineraryDay] = useState<number>(1);
   const [replanningDay, setReplanningDay] = useState<number | null>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -512,10 +539,28 @@ export default function App() {
     localStorage.setItem('trippy_active_trip', activeTrip ? JSON.stringify(activeTrip) : '');
   }, [activeTrip, isGuest]);
 
+  const fetchWeatherForTrip = useCallback(async (destinationCity: string) => {
+    if (!destinationCity) return;
+    setLoadingWeather(true);
+    try {
+      const data = await WeatherService.fetchWeatherForecast(destinationCity, settings.openweathermapApiKey);
+      setWeatherForecast(data);
+    } catch (err) {
+      console.error("Failed to fetch weather forecast:", err);
+    } finally {
+      setLoadingWeather(false);
+    }
+  }, [settings.openweathermapApiKey]);
+
   useEffect(() => {
     setSelectedLodgingOpt(null);
     setSelectedTransitOpt(null);
-  }, [activeTrip?.id]);
+    if (activeTrip?.destination) {
+      fetchWeatherForTrip(activeTrip.destination);
+    } else {
+      setWeatherForecast(null);
+    }
+  }, [activeTrip?.id, fetchWeatherForTrip]);
 
   useEffect(() => {
     if (isGuest) return;
@@ -3694,6 +3739,96 @@ export default function App() {
                         )}
                       </div>
                     )}
+
+                    {/* Active Weather Forecast Widget */}
+                    {loadingWeather ? (
+                      <div className="glass-card weather-card" style={{ padding: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100px', marginTop: '16px' }}>
+                        <RefreshCw className="animate-spin" size={20} style={{ marginRight: '8px', color: 'var(--primary-hover)' }} />
+                        <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Loading local weather forecast...</span>
+                      </div>
+                    ) : weatherForecast ? (
+                      <div className="glass-card weather-card no-print" style={{ marginTop: '16px', padding: '16px', borderRadius: '12px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
+                          <h4 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px', fontWeight: 600 }}>
+                            🌤️ Weather Forecast: {activeTrip.destination}
+                          </h4>
+                          {weatherForecast.isMock ? (
+                            <span 
+                              className="badge" 
+                              title="Enter an OpenWeatherMap API Key in Settings to enable real-time local forecasts"
+                              style={{ background: 'rgba(245, 158, 11, 0.1)', color: '#fbbf24', border: '1px solid rgba(245, 158, 11, 0.2)', cursor: 'help', fontSize: '10px', padding: '2px 6px' }}
+                            >
+                              Demo Forecast
+                            </span>
+                          ) : (
+                            <span 
+                              className="badge" 
+                              style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#34d399', border: '1px solid rgba(16, 185, 129, 0.2)', fontSize: '10px', padding: '2px 6px' }}
+                            >
+                              Live Weather
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Current weather summary */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '8px', border: '1px solid var(--border)', marginBottom: '12px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            {getWeatherIcon(weatherForecast.current.condition, 36)}
+                            <div>
+                              <div style={{ fontSize: '22px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: '1.1' }}>
+                                {weatherForecast.current.temp}°C
+                              </div>
+                              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', textTransform: 'capitalize', marginTop: '2px' }}>
+                                {weatherForecast.current.description}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'flex', gap: '16px', fontSize: '11px', color: 'var(--text-secondary)' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                              <span>Feels like: <strong>{weatherForecast.current.feelsLike}°C</strong></span>
+                              <span style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                <Droplets size={10} /> Humidity: <strong>{weatherForecast.current.humidity}%</strong>
+                              </span>
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                              <span style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                <Wind size={10} /> Wind: <strong>{weatherForecast.current.windSpeed} m/s</strong>
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* 5-Day forecast daily grid */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '6px' }}>
+                          {weatherForecast.forecast.map((day, idx) => (
+                            <div 
+                              key={idx} 
+                              style={{ 
+                                display: 'flex', 
+                                flexDirection: 'column', 
+                                alignItems: 'center', 
+                                gap: '6px', 
+                                padding: '6px 4px', 
+                                background: 'rgba(255, 255, 255, 0.01)', 
+                                border: '1px solid var(--border)', 
+                                borderRadius: '8px',
+                                textAlign: 'center'
+                              }}
+                            >
+                              <span style={{ fontSize: '9px', fontWeight: 600, color: 'var(--text-secondary)' }}>{day.date.split(',')[0]}</span>
+                              {getWeatherIcon(day.condition, 16)}
+                              <span style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text-primary)', marginTop: '2px' }}>
+                                {day.temp}°
+                              </span>
+                              <span style={{ fontSize: '8px', color: 'var(--text-secondary)' }}>
+                                {day.maxTemp}° / {day.minTemp}°
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
 
                     <h3 style={{ marginBlock: '24px 16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <span>Schedule Calendar</span>
